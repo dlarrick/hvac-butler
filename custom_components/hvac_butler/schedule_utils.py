@@ -35,22 +35,22 @@ class ScheduleBlock:
 
 
 def time_str_to_minutes(value: str) -> int:
-    """Convert 'HH:MM' or 'HH:MM:SS' (including '24:00:00' / '23:59:59') to 0..1440 minutes."""
+    """Convert 'HH:MM', 'HH:MM:SS', or 'HH:MM:SS.ffffff' (incl. time.max) to 0..1440."""
     if not isinstance(value, str):
-        raise ValueError(f"Expected time string, got {type(value).__name__}")
+        raise TypeError(f"Expected time string, got {type(value).__name__}")
     raw = value.strip()
     parts = raw.split(":")
     if len(parts) not in (2, 3):
         raise ValueError(f"Invalid time format: {value!r}")
     hours = int(parts[0])
     minutes = int(parts[1])
-    seconds = int(parts[2]) if len(parts) == 3 else 0
+    seconds = float(parts[2]) if len(parts) == 3 else 0.0
 
-    if hours == 24 and minutes == 0 and seconds == 0:
+    if hours == 24 and minutes == 0 and seconds == 0.0:
         return 1440
-    if hours == 23 and minutes == 59 and seconds == 59:
+    if hours == 23 and minutes == 59 and 59.0 <= seconds < 60.0:
         return 1440
-    if not (0 <= hours <= 23 and 0 <= minutes <= 59 and 0 <= seconds <= 59):
+    if not (0 <= hours <= 23 and 0 <= minutes <= 59 and 0.0 <= seconds < 60.0):
         raise ValueError(f"Out-of-range time: {value!r}")
     return hours * 60 + minutes
 
@@ -73,7 +73,7 @@ def parse_ha_blocks(raw_blocks: list[dict[str, Any]] | None) -> list[ScheduleBlo
     parsed: list[ScheduleBlock] = []
     for item in raw_blocks:
         if not isinstance(item, dict):
-            raise ValueError(f"Schedule block must be a dict, got {type(item).__name__}")
+            raise TypeError(f"Schedule block must be a dict, got {type(item).__name__}")
         start_min = time_str_to_minutes(str(item["from"]))
         end_min = time_str_to_minutes(str(item["to"]))
         if end_min <= start_min:
@@ -83,7 +83,7 @@ def parse_ha_blocks(raw_blocks: list[dict[str, Any]] | None) -> list[ScheduleBlo
 
         data = item.get("data") or {}
         if not isinstance(data, dict):
-            raise ValueError("Block 'data' must be a dict")
+            raise TypeError("Block 'data' must be a dict")
 
         mode = str(data.get("hvac_mode", "heat_cool")).lower()
         if mode not in VALID_HVAC_MODES:

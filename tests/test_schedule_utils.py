@@ -22,6 +22,7 @@ def test_time_str_roundtrip_and_midnight() -> None:
     assert time_str_to_minutes("21:00:00") == 1260
     assert time_str_to_minutes("24:00:00") == 1440
     assert time_str_to_minutes("23:59:59") == 1440
+    assert time_str_to_minutes("23:59:59.999999") == 1440
 
     assert minutes_to_time_str(0) == "00:00:00"
     assert minutes_to_time_str(390) == "06:30:00"

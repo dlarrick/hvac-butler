@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import itertools
 from typing import Any
 
 from .const import (
@@ -50,7 +51,9 @@ def _find_baseline_reference(
     best: ScheduleBlock | None = None
     best_overlap = 0
     for base in baseline_blocks:
-        overlap = min(block.end_min, base.end_min) - max(block.start_min, base.start_min)
+        overlap = min(block.end_min, base.end_min) - max(
+            block.start_min, base.start_min
+        )
         if overlap > best_overlap:
             best_overlap = overlap
             best = base
@@ -77,8 +80,7 @@ def _coerce_supported_mode(
 
     # Pick sensible fallback from supported modes based on regime
     is_heating_regime = (
-        outdoor_temp_f is None
-        or outdoor_temp_f < HEATING_REGIME_OUTDOOR_THRESHOLD_F
+        outdoor_temp_f is None or outdoor_temp_f < HEATING_REGIME_OUTDOOR_THRESHOLD_F
     )
     preference = (
         ("heat_cool", "heat", "cool", "off")
@@ -87,9 +89,7 @@ def _coerce_supported_mode(
     )
     for candidate in preference:
         if candidate in supported_hvac_modes:
-            warnings.append(
-                f"Coerced unsupported mode '{mode}' -> '{candidate}'"
-            )
+            warnings.append(f"Coerced unsupported mode '{mode}' -> '{candidate}'")
             return candidate
     return mode
 
@@ -120,9 +120,17 @@ def _enforce_block_bounds(
 
     # Fill missing setpoint from baseline if needed
     if mode in ("heat_cool", "heat") and heat is None:
-        heat = baseline_ref.heat_to if baseline_ref and baseline_ref.heat_to is not None else config.min_heat_temp
+        heat = (
+            baseline_ref.heat_to
+            if baseline_ref and baseline_ref.heat_to is not None
+            else config.min_heat_temp
+        )
     if mode in ("heat_cool", "cool") and cool is None:
-        cool = baseline_ref.cool_to if baseline_ref and baseline_ref.cool_to is not None else config.max_cool_temp
+        cool = (
+            baseline_ref.cool_to
+            if baseline_ref and baseline_ref.cool_to is not None
+            else config.max_cool_temp
+        )
 
     # Strip unused setpoint on single-mode entities
     if mode == "heat":
@@ -159,12 +167,16 @@ def _enforce_block_bounds(
     if heat is not None:
         clamped_h = _clamp(heat, config.min_heat_temp, config.max_heat_temp)
         if clamped_h != heat:
-            warnings.append(f"Clamped heat_to {heat:.1f} -> {clamped_h:.1f} (hard bounds)")
+            warnings.append(
+                f"Clamped heat_to {heat:.1f} -> {clamped_h:.1f} (hard bounds)"
+            )
             heat = clamped_h
     if cool is not None:
         clamped_c = _clamp(cool, config.min_cool_temp, config.max_cool_temp)
         if clamped_c != cool:
-            warnings.append(f"Clamped cool_to {cool:.1f} -> {clamped_c:.1f} (hard bounds)")
+            warnings.append(
+                f"Clamped cool_to {cool:.1f} -> {clamped_c:.1f} (hard bounds)"
+            )
             cool = clamped_c
 
     # 3. Directed deadband enforcement for heat_cool
@@ -244,7 +256,7 @@ def validate_and_clamp_blocks(
                 f"AI blocks end at {parsed[-1].end_min}m, expected {window_end_min}m"
             ),
         )
-    for prev, curr in zip(parsed, parsed[1:]):
+    for prev, curr in itertools.pairwise(parsed):
         if curr.start_min < prev.end_min:
             return ValidationResult(
                 blocks=baseline_window,

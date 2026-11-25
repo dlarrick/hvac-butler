@@ -1,0 +1,31 @@
+{
+  "name": "hvac-butler-cards",
+  "version": "0.1.0",
+  "description": "Home Assistant Lovelace dashboard card for HVAC Butler activity journal and planning",
+  "main": "dist/hvac-butler-cards.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && mkdir -p ../custom_components/hvac_butler/frontend && cp dist/hvac-butler-cards.js ../custom_components/hvac_butler/frontend/hvac-butler-cards.js",
+    "typecheck": "tsc --noEmit",
+    "build:watch": "vite build --watch",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "home-assistant",
+    "lovelace",
+    "custom-card",
+    "hvac",
+    "ai",
+    "schedule"
+  ],
+  "author": "Doug Larrick",
+  "license": "MIT",
+  "dependencies": {
+    "lit": "^3.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

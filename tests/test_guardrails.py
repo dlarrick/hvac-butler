@@ -80,9 +80,7 @@ def test_delta_and_hard_bounds_clamping() -> None:
             "data": {"hvac_mode": "heat_cool", "heat_to": 45.0, "cool_to": 95.0},
         }
     ]
-    cfg = GuardrailConfig(
-        min_heat_temp=50.0, max_cool_temp=85.0, max_ai_delta_f=4.0
-    )
+    cfg = GuardrailConfig(min_heat_temp=50.0, max_cool_temp=85.0, max_ai_delta_f=4.0)
     res = validate_and_clamp_blocks(
         ai_raw, baseline, 1260, 1440, cfg, outdoor_temp_f=20.0
     )

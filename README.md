@@ -11,6 +11,19 @@ Static thermostat schedules don't know that a howling windstorm makes 68°F feel
 3. **Native Home Assistant Schedules & Shadow Mode:** Writes directly to native Home Assistant `schedule.*` helpers (`schedule.<space>_butler`) so you can inspect the Butler's proposed plan alongside your existing schedules before ever handing over control.
 4. **Trust, but Verify:** Every AI proposal passes through deterministic Python guardrails that enforce hard temperature bounds, deadband separation, maximum deviation limits from your baselines, and automatic fallback to your baseline schedule if anything looks off.
 
+## Dashboard Card
+
+HVAC Butler automatically registers the **`custom:hvac-butler-card`** Lovelace card — add it from the Home Assistant card picker or with minimal YAML:
+
+```yaml
+type: custom:hvac-butler-card
+```
+
+- **Space-Scoped Activity Timeline:** Pick any configured space from the header dropdown to inspect up to 7 days of Butler decisions (newest first), or click **Run Plan** to trigger an on-demand macro-plan.
+- **Keyframes & Noise Reduction:** Daily `Plan` entries always stay visible as timeline anchors, while consecutive unchanged intraday checks automatically collapse into a single expandable row.
+- **Deterministic Trigger Badges:** Each entry's primary badge (`Plan`, `Presence`, `Arm/Disarm`) is 100% deterministic and indicates **what triggered the evaluation**, not an AI result. Secondary badges (`Adjusted`, `Comfort Boost`, `Fallback`) reflect deterministic actions actually taken.
+- **Full-Context Detail Modal:** Click any row to read the AI's verbatim commentary for the selected space (with before/after schedule diffs), plus the rest of the home's commentary from that same run and collapsible technical details.
+
 ## Compatibility
 
 - **Bring Your Own AI Provider:** Uses Home Assistant's native `ai_task` integration (Gemini, OpenAI, Anthropic, Ollama, etc.) — no separate API keys to manage.

@@ -74,10 +74,17 @@ def test_build_nightly_prompt_with_and_without_day_notes() -> None:
         is_weekend_tomorrow=False,
         weather_summary={"current": {"temperature": 30.0}},
         spaces=[space],
+        location_context={
+            "latitude": 42.4,
+            "longitude": -71.1,
+            "time_zone": "America/New_York",
+        },
         house_notes="3-story Victorian",
     )
     prompt = build_nightly_prompt(ctx, GuardrailConfig())
     assert '"living_room"' in prompt
+    assert '"location_climate"' in prompt
+    assert '"America/New_York"' in prompt
     assert '"day_notes"' not in prompt
     assert "3-story Victorian" in prompt
     assert "South-facing windows, woodstove" in prompt
@@ -100,6 +107,14 @@ def test_build_intraday_prompt() -> None:
         unoccupied_remaining=[ScheduleBlock(600, 1440, "heat_cool", 58.0, 82.0)],
         current_butler_remaining=[ScheduleBlock(600, 1440, "heat_cool", 58.0, 82.0)],
         space_notes="mmWave presence sensor is very accurate",
+        presence_sensors={
+            "binary_sensor.guest_occupancy": {
+                "name": "Guest Occupancy",
+                "device_class": "occupancy",
+                "state": "on",
+                "for_minutes": 4,
+            }
+        },
     )
     ctx = IntradayPlanContext(
         timestamp_iso="2026-11-23T10:00:00-05:00",
@@ -108,13 +123,29 @@ def test_build_intraday_prompt() -> None:
         trigger_event={
             "type": "presence_change",
             "space_id": "guest_room",
+            "sensor": "binary_sensor.guest_occupancy",
+            "from": "off",
+            "to": "on",
             "state": "on",
             "for_minutes": 3,
         },
         current_weather={"temperature": 35.0, "condition": "sunny"},
         spaces=[space],
+        current_alarm_state="disarmed",
+        recent_events=[
+            {
+                "timestamp": "2026-11-22T21:00:00-05:00",
+                "kind": "plan",
+                "trigger": {"type": "scheduled_plan", "label": "Plan"},
+                "spaces": {"guest_room": {"changed": False, "summary": "Baseline."}},
+            }
+        ],
     )
     prompt = build_intraday_prompt(ctx, GuardrailConfig())
     assert "10:00:00" in prompt
     assert '"guest_room"' in prompt
+    assert '"current_alarm_state": "disarmed"' in prompt
+    assert '"for_minutes": 4' in prompt
+    assert '"recent_events"' in prompt
     assert "mmWave presence sensor is very accurate" in prompt
+    assert "armed_away" in prompt and "manual_intraday" in prompt

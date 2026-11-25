@@ -1,0 +1,104 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up HVAC Butler",
+        "description": "Connect HVAC Butler to your Home Assistant AI Task and weather forecast. Existing HVAC Fusion spaces (if any) will be pre-populated automatically.",
+        "data": {
+          "name": "Butler Name",
+          "ai_task_entity": "AI Task Entity",
+          "weather_entity": "Weather Entity",
+          "alarm_entity": "Alarm Control Panel (optional)"
+        }
+      }
+    },
+    "error": {
+      "required": "This field is required."
+    },
+    "abort": {
+      "single_instance_allowed": "Only a single HVAC Butler instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HVAC Butler Configuration",
+        "menu_options": {
+          "global_settings": "Global Settings & Safety Bounds",
+          "spaces_menu": "Manage Spaces",
+          "finish": "Save & Finish"
+        }
+      },
+      "global_settings": {
+        "title": "Global Settings & Safety Bounds",
+        "data": {
+          "ai_task_entity": "AI Task Entity",
+          "weather_entity": "Weather Entity",
+          "alarm_entity": "Alarm Control Panel (optional)",
+          "house_notes": "Global House Notes"
+        },
+        "data_description": {
+          "house_notes": "Persistent context about your home and household routines (e.g. house orientation, pets, typical work-from-home patterns)."
+        },
+        "sections": {
+          "safety_bounds": {
+            "name": "Temperature Safety Bounds",
+            "description": "Deterministic hard limits enforced on every AI-generated schedule.",
+            "data": {
+              "min_heat_temp": "Minimum Heating Setpoint (°F)",
+              "max_heat_temp": "Maximum Heating Setpoint (°F)",
+              "min_cool_temp": "Minimum Cooling Setpoint (°F)",
+              "max_cool_temp": "Maximum Cooling Setpoint (°F)",
+              "max_ai_delta_f": "Max AI Deviation from Baseline (±°F)"
+            }
+          }
+        }
+      },
+      "spaces_menu": {
+        "title": "Manage Spaces",
+        "description": "Select a space to edit its baseline schedules and notes, or add a new space.",
+        "data": {
+          "space_action": "Space"
+        }
+      },
+      "space_add": {
+        "title": "Add Space",
+        "data": {
+          "climate_entity": "Target Climate Entity",
+          "occupied_schedule": "Occupied Baseline Schedule",
+          "unoccupied_schedule": "Unoccupied Baseline Schedule (optional)",
+          "default_mode": "Default Mode",
+          "presence_sensors": "Presence / Occupancy Sensors (optional)",
+          "space_notes": "Space Notes (optional)",
+          "cancel": "Cancel Add"
+        },
+        "data_description": {
+          "default_mode": "Baseline used on a typical day (use Unoccupied for guest rooms or rarely used spaces).",
+          "space_notes": "Room-specific traits and presence sensor type/quirks (e.g. south-facing windows, woodstove, PIR motion sensor misses stationary person, mmWave radar, bed sensor, pets)."
+        }
+      },
+      "space_edit": {
+        "title": "Edit Space",
+        "data": {
+          "climate_entity": "Target Climate Entity",
+          "occupied_schedule": "Occupied Baseline Schedule",
+          "unoccupied_schedule": "Unoccupied Baseline Schedule (optional)",
+          "default_mode": "Default Mode",
+          "presence_sensors": "Presence / Occupancy Sensors (optional)",
+          "space_notes": "Space Notes (optional)",
+          "delete_space": "Delete this space",
+          "cancel": "Cancel Edit"
+        },
+        "data_description": {
+          "default_mode": "Baseline used on a typical day (use Unoccupied for guest rooms or rarely used spaces).",
+          "space_notes": "Room-specific traits and presence sensor type/quirks (e.g. south-facing windows, woodstove, PIR motion sensor misses stationary person, mmWave radar, bed sensor, pets)."
+        }
+      }
+    },
+    "error": {
+      "required": "This field is required.",
+      "invalid_bounds": "Minimum temperature must be lower than maximum temperature.",
+      "unoccupied_schedule_required": "An unoccupied schedule is required when Default Mode is Unoccupied."
+    }
+  }
+}
