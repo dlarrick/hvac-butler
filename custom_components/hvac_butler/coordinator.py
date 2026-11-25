@@ -913,9 +913,21 @@ class HvacButlerCoordinator:
                     self.butler_schedules[space_id] = butler_eid
 
             if butler_eid:
+                tonight_write_blocks = tonight_res.blocks
+                if tonight_start_min > 0:
+                    existing_butler_week = await async_read_schedule(
+                        self.hass, butler_eid
+                    )
+                    existing_today = existing_butler_week.get(tonight_day, [])
+                    if existing_today:
+                        tonight_write_blocks = merge_intraday_blocks(
+                            existing_today,
+                            tonight_res.blocks,
+                            split_min=tonight_start_min,
+                        )
                 week_payload = build_butler_week_payload(
                     tonight_day=tonight_day,
-                    tonight_blocks=tonight_res.blocks,
+                    tonight_blocks=tonight_write_blocks,
                     tomorrow_day=tomorrow_day,
                     tomorrow_blocks=tomorrow_res.blocks,
                 )

@@ -702,3 +702,164 @@ async def test_multisensor_presence_aggregation_and_arrival_cooldown_bypass(
     assert sensor_states["binary_sensor.kitchen"]["state"] == "off"
     assert sensor_states["binary_sensor.dining"]["state"] == "on"
     assert "for_minutes" in sensor_states["binary_sensor.dining"]
+
+
+@pytest.mark.asyncio
+async def test_nightly_plan_at_2100_preserves_earlier_today_and_clears_yesterday(
+    hass: HomeAssistant,
+) -> None:
+    """At 21:00, nightly plan preserves 00:00-21:00 of today while clearing yesterday."""
+    from datetime import datetime
+    from unittest.mock import patch
+
+    collection = FakeScheduleStorageCollection()
+    _wire_fake_schedule_storage(hass, collection)
+
+    hass.states.async_set(
+        "climate.living_room_space",
+        "heat_cool",
+        {
+            "friendly_name": "Living Room Space",
+            "space_id": "living_room",
+            "current_temperature": 68.0,
+            "preset_mode": "Butler",
+            "hvac_modes": ["heat_cool", "heat", "cool", "off"],
+            "schedule_editing": False,
+        },
+    )
+
+    occ_week = _baseline_week(68.0, 74.0)
+    # Existing butler schedule has yesterday (monday) and full today (tuesday) populated
+    existing_butler = {day: [] for day in DAYS_OF_WEEK}
+    existing_butler["monday"] = [
+        {
+            "from": "00:00:00",
+            "to": "24:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 68.0, "cool_to": 74.0},
+        }
+    ]
+    existing_butler["tuesday"] = [
+        {
+            "from": "00:00:00",
+            "to": "07:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 64.0, "cool_to": 74.0},
+        },
+        {
+            "from": "07:00:00",
+            "to": "24:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 69.0, "cool_to": 74.0},
+        },
+    ]
+
+    async def _handle_get_schedule(call: ServiceCall) -> dict[str, Any]:
+        eid = call.data["entity_id"]
+        if eid == "schedule.lr_occupied":
+            return {eid: occ_week}
+        if eid == "schedule.living_room_butler":
+            return {eid: existing_butler}
+        return {eid: {day: [] for day in DAYS_OF_WEEK}}
+
+    async def _handle_generate_data(call: ServiceCall) -> dict[str, Any]:
+        payload = {
+            "spaces": {
+                "living_room": {
+                    "tonight_remaining": [
+                        {
+                            "from": "21:00:00",
+                            "to": "24:00:00",
+                            "data": {
+                                "hvac_mode": "heat_cool",
+                                "heat_to": 66.0,
+                                "cool_to": 74.0,
+                            },
+                        }
+                    ],
+                    "tomorrow": [
+                        {
+                            "from": "00:00:00",
+                            "to": "24:00:00",
+                            "data": {
+                                "hvac_mode": "heat_cool",
+                                "heat_to": 68.0,
+                                "cool_to": 74.0,
+                            },
+                        }
+                    ],
+                    "daily_plan_summary": "Baseline maintained.",
+                }
+            }
+        }
+        return {"data": json.dumps(payload)}
+
+    hass.services.async_register(
+        "schedule",
+        "get_schedule",
+        _handle_get_schedule,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        "ai_task",
+        "generate_data",
+        _handle_generate_data,
+        supports_response=SupportsResponse.ONLY,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="HVAC Butler",
+        data={
+            CONF_NAME: "HVAC Butler",
+            CONF_AI_TASK_ENTITY: "ai_task.gemini",
+            CONF_WEATHER_ENTITY: "",
+            CONF_ALARM_ENTITY: "",
+            CONF_HOUSE_NOTES: "",
+            CONF_SPACES: [
+                {
+                    CONF_CLIMATE_ENTITY: "climate.living_room_space",
+                    CONF_OCCUPIED_SCHEDULE: "schedule.lr_occupied",
+                    CONF_UNOCCUPIED_SCHEDULE: "",
+                    CONF_DEFAULT_MODE: "occupied",
+                    CONF_PRESENCE_SENSORS: [],
+                    CONF_SPACE_NOTES: "",
+                }
+            ],
+        },
+        options={},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Tuesday 2026-11-24 21:00 local time
+    fake_now = datetime(2026, 11, 24, 21, 0, 0)
+    with patch(
+        "custom_components.hvac_butler.coordinator.dt_util.now", return_value=fake_now
+    ):
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        await coordinator.async_run_nightly_plan()
+
+    stored = collection.data["living_room_butler"]
+    # Yesterday (monday) is cleared
+    assert stored["monday"] == []
+    # Today (tuesday) preserves 00:00-07:00 and 07:00-21:00, plus new 21:00-24:00
+    assert stored["tuesday"] == [
+        {
+            "from": "00:00:00",
+            "to": "07:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 64.0, "cool_to": 74.0},
+        },
+        {
+            "from": "07:00:00",
+            "to": "21:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 69.0, "cool_to": 74.0},
+        },
+        {
+            "from": "21:00:00",
+            "to": "24:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 66.0, "cool_to": 74.0},
+        },
+    ]
+    # Tomorrow (wednesday) is populated
+    assert len(stored["wednesday"]) == 1
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
