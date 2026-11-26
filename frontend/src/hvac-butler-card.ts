@@ -10,6 +10,8 @@ import type {
 } from './types';
 import './components/butler-timeline-view';
 import './components/butler-detail-modal';
+import './components/butler-brief-modal';
+import { BUTLER_HEAD_DATA_URI } from './assets/butler-head';
 import { ALL_SPACES_ID } from './utils/timeline';
 
 const STORAGE_KEY_SELECTED_SPACE = 'hvac_butler_card_selected_space';
@@ -26,6 +28,7 @@ export class HvacButlerCard extends LitElement {
   @state() private _entries: JournalEntry[] = [];
   @state() private _selectedSpaceId = '';
   @state() private _selectedEntry: JournalEntry | null = null;
+  @state() private _showBriefModal = false;
   @state() private _loading = true;
   @state() private _reconnecting = false;
   @state() private _runningPlan = false;
@@ -46,17 +49,17 @@ export class HvacButlerCard extends LitElement {
     }
 
     ha-card {
-      padding: 14px 16px 16px;
+      padding: 12px 14px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
     }
 
     .card-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 6px 8px;
       flex-wrap: wrap;
     }
 
@@ -69,50 +72,98 @@ export class HvacButlerCard extends LitElement {
 
     .title {
       font-size: 1.05rem;
-      font-weight: 600;
+      font-weight: 700;
       color: var(--primary-text-color, #e1e1e1);
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .status-pill {
-      font-size: 0.72rem;
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.74rem;
       font-weight: 600;
-      padding: 2px 8px;
+      padding: 2px 9px;
       border-radius: 999px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      white-space: nowrap;
     }
 
     .status-ok {
-      background: rgba(76, 175, 80, 0.16);
-      color: #81c784;
+      background: rgba(52, 211, 153, 0.14);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, 0.35);
     }
 
     .status-busy {
-      background: rgba(3, 169, 244, 0.18);
-      color: #29b6f6;
+      background: rgba(56, 189, 248, 0.16);
+      color: #7dd3fc;
+      border: 1px solid rgba(56, 189, 248, 0.35);
     }
 
     .status-fallback {
-      background: rgba(255, 152, 0, 0.18);
-      color: #ffb74d;
+      background: rgba(251, 191, 36, 0.14);
+      color: #fbbf24;
+      border: 1px solid rgba(251, 191, 36, 0.35);
     }
 
     .status-error {
-      background: rgba(244, 67, 54, 0.18);
-      color: #ef5350;
+      background: rgba(244, 67, 54, 0.16);
+      color: #f87171;
+      border: 1px solid rgba(244, 67, 54, 0.35);
     }
 
     .status-idle {
-      background: rgba(127, 127, 127, 0.16);
+      background: rgba(127, 127, 127, 0.14);
       color: var(--secondary-text-color, #9e9e9e);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .call-butler-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--primary-text-color, #e1e1e1);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.2));
+      border-radius: 999px;
+      padding: 3px 10px 3px 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .call-butler-btn:hover {
+      background: rgba(3, 169, 244, 0.14);
+      border-color: rgba(3, 169, 244, 0.45);
+    }
+
+    .call-butler-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: block;
     }
 
     .controls {
       display: flex;
       align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+      gap: 6px;
+      flex-wrap: nowrap;
+      min-width: 0;
+      width: 100%;
     }
 
     .space-select {
@@ -120,10 +171,13 @@ export class HvacButlerCard extends LitElement {
       color: var(--primary-text-color, #e1e1e1);
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.16));
       border-radius: 8px;
-      padding: 5px 10px;
-      font-size: 0.85rem;
+      padding: 4px 8px;
+      font-size: 0.8rem;
       font-family: inherit;
       cursor: pointer;
+      min-width: 0;
+      flex: 1 1 auto;
+      text-overflow: ellipsis;
     }
 
     .run-btn {
@@ -131,12 +185,13 @@ export class HvacButlerCard extends LitElement {
       color: var(--text-primary-color, #fff);
       border: none;
       border-radius: 8px;
-      padding: 6px 11px;
-      font-size: 0.82rem;
+      padding: 5px 10px;
+      font-size: 0.78rem;
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
       transition: opacity 0.15s ease;
     }
 
@@ -154,12 +209,13 @@ export class HvacButlerCard extends LitElement {
       color: var(--primary-text-color, #e1e1e1);
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.22));
       border-radius: 8px;
-      padding: 5px 10px;
-      font-size: 0.82rem;
+      padding: 4px 9px;
+      font-size: 0.78rem;
       font-weight: 500;
       font-family: inherit;
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
       transition: background 0.15s ease, opacity 0.15s ease;
     }
 
@@ -494,9 +550,21 @@ export class HvacButlerCard extends LitElement {
     return html`
       <ha-card>
         <div class="card-header">
-          <div class="title-group">
-            <span class="title">${title}</span>
-            <span class="status-pill ${pill.cls}">${pill.label}</span>
+          <div class="header-top">
+            <div class="title-group">
+              <span class="title">${title}</span>
+              <span class="status-pill ${pill.cls}">${pill.label}</span>
+            </div>
+            <button
+              class="call-butler-btn"
+              @click=${() => {
+                this._showBriefModal = true;
+              }}
+              title="Talk to HVAC Butler about upcoming events or schedule changes"
+            >
+              <img class="call-butler-avatar" src=${BUTLER_HEAD_DATA_URI} alt="" />
+              <span>Call Butler</span>
+            </button>
           </div>
           <div class="controls">
             ${this._spaces.length > 0
@@ -586,6 +654,20 @@ export class HvacButlerCard extends LitElement {
                 this._selectedEntry = null;
               }}
             ></butler-detail-modal>
+          `
+        : nothing}
+
+      ${this._showBriefModal
+        ? html`
+            <butler-brief-modal
+              .hass=${this.hass}
+              @close-brief=${() => {
+                this._showBriefModal = false;
+              }}
+              @brief-committed=${() => {
+                void this._fetchJournal();
+              }}
+            ></butler-brief-modal>
           `
         : nothing}
     `;

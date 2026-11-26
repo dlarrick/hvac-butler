@@ -24,7 +24,9 @@ hvac-butler/
 │       ├── brand/                      # Brand assets (icon.png, icon@2x.png, logo.png, logo@2x.png)
 │       ├── frontend/                   # Built Lovelace card bundle (hvac-butler-cards.js)
 │       ├── __init__.py                 # Integration entry setup/unload, frontend & WebSocket registration
-│       ├── button.py                   # On-demand "Run nightly plan now" button entity
+│       ├── button.py                   # On-demand "Run nightly plan now" & "Run intraday check now" buttons
+│       ├── calendar.py                 # Standard HA CalendarEntity (calendar.hvac_butler_notes, delete-only UI)
+│       ├── calendar_store.py           # HA Store-backed Butler calendar events, day_notes & boundary triggers
 │       ├── config_flow.py              # Initial onboarding & 2-menu Options Flow (with hvac_fusion auto-discovery)
 │       ├── const.py                    # Domain constants, config keys, and baked-in defaults
 │       ├── coordinator.py              # Nightly 21:00 macro-planner & event-driven intraday coordinator
@@ -45,16 +47,20 @@ hvac-butler/
 │   ├── tsconfig.json
 │   ├── vite.config.ts
 │   └── src/
+│       ├── assets/
+│       │   └── butler-head.ts          # Extracted circular Butler head avatar data URI
 │       ├── components/
+│       │   ├── butler-brief-modal.ts   # "Call Butler" interactive Q&A briefing modal
 │       │   ├── butler-detail-modal.ts  # Full-context modal (selected space + diffs, other spaces, raw JSON)
-│       │   └── butler-timeline-view.ts # Space-scoped timeline with Plan anchors & collapsed unchanged runs
+│       │   └── butler-timeline-view.ts # Pinned latest Plan bar + scrollable space-scoped timeline
 │       ├── utils/
 │       │   └── timeline.ts             # Grouping, timestamp formatting, deterministic block diff helpers
-│       ├── hvac-butler-card.ts         # Main card shell (space selector, status pill, Run Plan button)
+│       ├── hvac-butler-card.ts         # Main card shell (compact header, Call Butler, space selector, actions)
 │       ├── index.ts                    # Card registration & HA card picker metadata
-│       └── types.ts                    # Versioned journal & HA TypeScript types
+│       └── types.ts                    # Versioned journal, briefing & HA TypeScript types
 └── tests/
     ├── conftest.py                     # Pytest Home Assistant harness fixtures
+    ├── test_calendar.py                # Calendar store, CalendarEntity, Call Butler briefing & day_notes tests
     ├── test_config_flow.py             # Onboarding, hvac_fusion pre-population, 2-menu Options Flow tests
     ├── test_coordinator.py             # End-to-end nightly plan, native schedule write, intraday & shadow-mode tests
     ├── test_guardrails.py              # Directed deadband, hard bounds, mode coercion, delta clamp, fallback tests

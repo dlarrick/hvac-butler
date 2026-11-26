@@ -152,3 +152,5 @@ def test_build_intraday_prompt() -> None:
     assert "armed_away" in prompt and "manual_intraday" in prompt
     assert "Home Assistant restart" in prompt
     assert "bedtime setbacks" in prompt
+    assert "unnecessary overshoot" in prompt
+    assert "setback recovery" in prompt

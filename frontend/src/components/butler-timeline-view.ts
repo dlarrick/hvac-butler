@@ -28,17 +28,78 @@ export class ButlerTimelineView extends LitElement {
       font-size: 0.9rem;
     }
 
+    .pinned-plan {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(3, 169, 244, 0.28);
+      border-left: 3px solid var(--primary-color, #03a9f4);
+      background: rgba(3, 169, 244, 0.07);
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+      min-width: 0;
+    }
+
+    .pinned-plan:hover {
+      background: rgba(3, 169, 244, 0.14);
+      border-color: var(--primary-color, #03a9f4);
+    }
+
+    .pinned-plan-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .pinned-plan-text {
+      font-size: 0.8rem;
+      color: var(--primary-text-color, #e1e1e1);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .timeline-scroll {
+      max-height: 360px;
+      overflow-y: auto;
+      overscroll-behavior-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-right: 2px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    }
+
+    .timeline-scroll::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .timeline-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+    }
+
+    .timeline-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
     .timeline {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     }
 
     .row {
       display: flex;
       flex-direction: column;
-      gap: 5px;
-      padding: 10px 12px;
+      gap: 4px;
+      padding: 8px 10px;
       border-radius: 10px;
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.1));
       background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
@@ -101,6 +162,11 @@ export class ButlerTimelineView extends LitElement {
     .badge-trigger-alarm {
       background: rgba(255, 152, 0, 0.18);
       color: #ffb74d;
+    }
+
+    .badge-trigger-calendar {
+      background: rgba(0, 188, 212, 0.18);
+      color: #4dd0e1;
     }
 
     .badge-adjusted {
@@ -198,6 +264,7 @@ export class ButlerTimelineView extends LitElement {
     const t = entry.trigger?.type;
     if (t === 'presence_change') return 'badge-trigger-presence';
     if (t === 'alarm_change') return 'badge-trigger-alarm';
+    if (t === 'calendar_event') return 'badge-trigger-calendar';
     return 'badge-trigger-plan';
   }
 
@@ -296,42 +363,76 @@ export class ButlerTimelineView extends LitElement {
     }
 
     const items = groupTimelineItems(spaceEntries, this.selectedSpaceId);
+    const latestPlan = spaceEntries.find((e) => e.kind === 'plan') ?? null;
+
+    let pinnedPlanText = '';
+    if (latestPlan) {
+      const rec = isAll ? undefined : latestPlan.spaces?.[this.selectedSpaceId];
+      pinnedPlanText = !isAll
+        ? rec?.summary || latestPlan.headline || 'Plan updated.'
+        : latestPlan.headline || 'Plan updated.';
+    }
 
     return html`
-      <div class="timeline">
-        ${items.map((item) => {
-          if (item.type === 'entry') {
-            return this._renderEntryRow(item.entry);
-          }
-          const expanded = this._expandedStreaks.has(item.id);
-          return html`
+      ${latestPlan
+        ? html`
             <div
-              class="collapsed-row"
+              class="pinned-plan"
               role="button"
               tabindex="0"
-              @click=${() => this._toggleStreak(item.id)}
+              title="Latest daily plan — click for full schedule details"
+              @click=${() => this._selectEntry(latestPlan)}
               @keydown=${(e: KeyboardEvent) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  this._toggleStreak(item.id);
+                  this._selectEntry(latestPlan);
                 }
               }}
             >
-              <span class="collapsed-left">
-                <span>${expanded ? '▾' : '▸'}</span>
-                <span>${item.entries.length} unchanged checks</span>
-              </span>
-              <span class="time">${formatStreakRange(item.entries)}</span>
+              <div class="pinned-plan-left">
+                <span class="badge badge-trigger-plan">Plan</span>
+                <span class="pinned-plan-text">${pinnedPlanText}</span>
+              </div>
+              <span class="time">${formatShortTimestamp(latestPlan.timestamp)}</span>
             </div>
-            ${expanded
-              ? html`
-                  <div class="streak-children">
-                    ${item.entries.map((e) => this._renderEntryRow(e))}
-                  </div>
-                `
-              : nothing}
-          `;
-        })}
+          `
+        : nothing}
+      <div class="timeline-scroll">
+        <div class="timeline">
+          ${items.map((item) => {
+            if (item.type === 'entry') {
+              return this._renderEntryRow(item.entry);
+            }
+            const expanded = this._expandedStreaks.has(item.id);
+            return html`
+              <div
+                class="collapsed-row"
+                role="button"
+                tabindex="0"
+                @click=${() => this._toggleStreak(item.id)}
+                @keydown=${(e: KeyboardEvent) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this._toggleStreak(item.id);
+                  }
+                }}
+              >
+                <span class="collapsed-left">
+                  <span>${expanded ? '▾' : '▸'}</span>
+                  <span>${item.entries.length} unchanged checks</span>
+                </span>
+                <span class="time">${formatStreakRange(item.entries)}</span>
+              </div>
+              ${expanded
+                ? html`
+                    <div class="streak-children">
+                      ${item.entries.map((e) => this._renderEntryRow(e))}
+                    </div>
+                  `
+                : nothing}
+            `;
+          })}
+        </div>
       </div>
     `;
   }

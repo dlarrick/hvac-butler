@@ -137,3 +137,24 @@ export interface HvacButlerCardConfig {
   space_id?: string;
   limit?: number;
 }
+
+export interface BriefingMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface BriefTurnResponse {
+  reply: string;
+  ready_to_commit: boolean;
+  calendar_actions: Record<string, unknown>[];
+}
+
+export interface BriefCommitResponse {
+  committed: {
+    added: number;
+    updated: number;
+    deleted: number;
+  };
+  summary_reply?: string;
+  triggered_reeval?: boolean;
+}

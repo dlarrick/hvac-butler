@@ -126,6 +126,83 @@ def ws_run_intraday(
     connection.send_result(msg["id"], {"started": True, "status": "revising"})
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/brief",
+        vol.Required("messages"): [
+            vol.Schema(
+                {
+                    vol.Required("role"): vol.In(["user", "assistant"]),
+                    vol.Required("content"): str,
+                }
+            )
+        ],
+    }
+)
+@websocket_api.async_response
+async def ws_brief_butler(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle one conversational 'Call Butler' briefing turn."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(
+            msg["id"], "not_loaded", "HVAC Butler is not currently loaded."
+        )
+        return
+
+    try:
+        result = await coordinator.async_brief_butler(msg["messages"])
+    except Exception as err:
+        connection.send_error(msg["id"], "brief_failed", str(err).splitlines()[0][:240])
+        return
+
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/brief_commit",
+        vol.Required("messages"): [
+            vol.Schema(
+                {
+                    vol.Required("role"): vol.In(["user", "assistant"]),
+                    vol.Required("content"): str,
+                }
+            )
+        ],
+        vol.Optional("calendar_actions", default=[]): list,
+    }
+)
+@websocket_api.async_response
+async def ws_brief_commit(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Finalize and commit calendar notes from a 'Call Butler' conversation."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(
+            msg["id"], "not_loaded", "HVAC Butler is not currently loaded."
+        )
+        return
+
+    try:
+        result = await coordinator.async_commit_briefing(
+            msg["messages"], proposed_actions=msg.get("calendar_actions") or []
+        )
+    except Exception as err:
+        connection.send_error(
+            msg["id"], "commit_failed", str(err).splitlines()[0][:240]
+        )
+        return
+
+    connection.send_result(msg["id"], result)
+
+
 @callback
 def async_register_websocket_commands(hass: HomeAssistant) -> None:
     """Register HVAC Butler WebSocket API commands once per HA process."""
@@ -134,4 +211,6 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_journal)
     websocket_api.async_register_command(hass, ws_run_plan)
     websocket_api.async_register_command(hass, ws_run_intraday)
+    websocket_api.async_register_command(hass, ws_brief_butler)
+    websocket_api.async_register_command(hass, ws_brief_commit)
     hass.data[_WS_REGISTERED] = True
