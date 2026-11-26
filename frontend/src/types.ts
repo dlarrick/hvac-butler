@@ -128,6 +128,7 @@ export interface JournalResponse {
   last_error: string | null;
   spaces: ButlerSpaceSummary[];
   entries: JournalEntry[];
+  latest_plan?: JournalEntry | null;
 }
 
 export interface HvacButlerCardConfig {
@@ -135,6 +136,7 @@ export interface HvacButlerCardConfig {
   entity?: string;
   title?: string;
   space_id?: string;
+  days?: number;
   limit?: number;
 }
 

@@ -30,9 +30,8 @@ def _get_coordinator(hass: HomeAssistant) -> HvacButlerCoordinator | None:
     {
         vol.Required("type"): f"{DOMAIN}/journal",
         vol.Optional("space_id"): str,
-        vol.Optional("limit", default=50): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=100)
-        ),
+        vol.Optional("days"): vol.All(vol.Coerce(int), vol.Range(min=1, max=7)),
+        vol.Optional("limit"): vol.All(vol.Coerce(int), vol.Range(min=1, max=500)),
     }
 )
 @callback
@@ -50,8 +49,12 @@ def ws_get_journal(
         return
 
     space_id = msg.get("space_id") or None
-    limit = int(msg.get("limit", 50))
-    entries = coordinator.journal.get_entries(space_id=space_id, limit=limit)
+    days = int(msg["days"]) if msg.get("days") is not None else None
+    limit = int(msg["limit"]) if msg.get("limit") is not None else None
+    if days is None and limit is None:
+        days = 2
+    entries = coordinator.journal.get_entries(space_id=space_id, days=days, limit=limit)
+    latest_plan = coordinator.journal.get_latest_plan(space_id=space_id)
 
     connection.send_result(
         msg["id"],
@@ -62,6 +65,7 @@ def ws_get_journal(
             "last_error": coordinator.last_error,
             "spaces": coordinator.get_spaces_summary(),
             "entries": entries,
+            "latest_plan": latest_plan,
         },
     )
 

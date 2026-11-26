@@ -458,7 +458,7 @@ export class ButlerBriefModal extends LitElement {
         <div class="composer">
           <textarea
             rows="2"
-            placeholder="e.g. Tomorrow is Thanksgiving, 8 people, M-I-L staying in guest room…"
+            placeholder="Tell the butler about upcoming events that affect the home's climate controls."
             .value=${this._draft}
             ?disabled=${busy}
             @input=${(e: Event) => {

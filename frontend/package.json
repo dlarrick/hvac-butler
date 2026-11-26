@@ -1,6 +1,6 @@
 {
   "name": "hvac-butler-cards",
-  "version": "0.1.90",
+  "version": "0.1.91",
   "description": "Home Assistant Lovelace dashboard card for HVAC Butler activity journal and planning",
   "main": "dist/hvac-butler-cards.js",
   "type": "module",
