@@ -248,3 +248,39 @@ async def test_journal_keyframed_short_term_memory_and_cap_fallback(
     assert mem_capped[0]["kind"] == "plan"
     assert "first_floor" in mem_capped[1]["spaces"]
     assert "loft" not in mem_capped[1]["spaces"]
+
+
+@pytest.mark.asyncio
+async def test_journal_days_window_and_latest_plan(hass: HomeAssistant) -> None:
+    """Verify time-windowed `days` query returns all entries in range and `get_latest_plan` finds older plans."""
+    journal = HvacButlerJournal(hass, max_entries=500, retention_days=7)
+    await journal.async_load()
+
+    now = dt_util.now()
+    # Plan from 3 days ago (outside a 2-day window, but still inside 7-day retention)
+    await journal.async_append(
+        {
+            "timestamp": (now - timedelta(days=3)).isoformat(),
+            "kind": "plan",
+            "spaces": {"first_floor": {"changed": False, "summary": "3d ago plan"}},
+        }
+    )
+    # 60 intraday checks within the last 12 hours (exceeds old 50-entry limit)
+    for idx in range(60):
+        await journal.async_append(
+            {
+                "timestamp": (now - timedelta(minutes=10 * idx)).isoformat(),
+                "kind": "intraday",
+                "spaces": {
+                    "first_floor": {"changed": False, "summary": f"Check {idx}"}
+                },
+            }
+        )
+
+    two_day = journal.get_entries(days=2)
+    assert len(two_day) == 60
+    assert all(e["kind"] == "intraday" for e in two_day)
+
+    latest_plan = journal.get_latest_plan(space_id="first_floor")
+    assert latest_plan is not None
+    assert latest_plan["spaces"]["first_floor"]["summary"] == "3d ago plan"

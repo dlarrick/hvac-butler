@@ -26,6 +26,7 @@ export class HvacButlerCard extends LitElement {
   @state() private _status = 'idle';
   @state() private _spaces: ButlerSpaceSummary[] = [];
   @state() private _entries: JournalEntry[] = [];
+  @state() private _latestPlan: JournalEntry | null = null;
   @state() private _selectedSpaceId = '';
   @state() private _selectedEntry: JournalEntry | null = null;
   @state() private _showBriefModal = false;
@@ -262,7 +263,7 @@ export class HvacButlerCard extends LitElement {
 
   setConfig(config: HvacButlerCardConfig): void {
     this._config = {
-      limit: 50,
+      days: 2,
       ...config
     };
     if (config.space_id) {
@@ -406,16 +407,21 @@ export class HvacButlerCard extends LitElement {
     }
     this._fetching = true;
     try {
-      const resp = await this.hass.callWS<JournalResponse>({
+      const wsMsg: Record<string, unknown> = {
         type: 'hvac_butler/journal',
-        limit: this._config.limit ?? 50
-      });
+        days: this._config.days ?? 2
+      };
+      if (this._config.limit !== undefined) {
+        wsMsg.limit = this._config.limit;
+      }
+      const resp = await this.hass.callWS<JournalResponse>(wsMsg);
       this._clearRetryTimer();
       this._retryAttempt = 0;
       this._reconnecting = false;
       this._status = resp.status || 'idle';
       this._spaces = resp.spaces || [];
       this._entries = resp.entries || [];
+      this._latestPlan = resp.latest_plan ?? null;
       this._error = null;
       this._runningPlan = this._status === 'planning' || this._status === 'revising';
 
@@ -637,6 +643,7 @@ export class HvacButlerCard extends LitElement {
           : html`
               <butler-timeline-view
                 .entries=${this._entries}
+                .latestPlan=${this._latestPlan}
                 .selectedSpaceId=${this._selectedSpaceId}
                 @select-entry=${(e: CustomEvent<{ entry: JournalEntry }>) => {
                   this._selectedEntry = e.detail.entry;

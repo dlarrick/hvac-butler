@@ -805,6 +805,7 @@ let ButlerTimelineView = class extends i {
   constructor() {
     super(...arguments);
     this.entries = [];
+    this.latestPlan = null;
     this.selectedSpaceId = "";
     this._expandedStreaks = /* @__PURE__ */ new Set();
   }
@@ -909,7 +910,8 @@ let ButlerTimelineView = class extends i {
       `;
     }
     const items = groupTimelineItems(spaceEntries, this.selectedSpaceId);
-    const latestPlan = spaceEntries.find((e2) => e2.kind === "plan") ?? null;
+    const fallbackPlan = this.latestPlan && (isAll || this.latestPlan.spaces && this.selectedSpaceId in this.latestPlan.spaces) ? this.latestPlan : null;
+    const latestPlan = spaceEntries.find((e2) => e2.kind === "plan") ?? fallbackPlan;
     let pinnedPlanText = "";
     if (latestPlan) {
       const rec = isAll ? void 0 : (_a2 = latestPlan.spaces) == null ? void 0 : _a2[this.selectedSpaceId];
@@ -1201,6 +1203,9 @@ ButlerTimelineView.styles = i$3`
 __decorateClass$3([
   n2({ attribute: false })
 ], ButlerTimelineView.prototype, "entries", 2);
+__decorateClass$3([
+  n2({ attribute: false })
+], ButlerTimelineView.prototype, "latestPlan", 2);
 __decorateClass$3([
   n2({ type: String })
 ], ButlerTimelineView.prototype, "selectedSpaceId", 2);
@@ -1902,7 +1907,7 @@ let ButlerBriefModal = class extends i {
         <div class="composer">
           <textarea
             rows="2"
-            placeholder="e.g. Tomorrow is Thanksgiving, 8 people, M-I-L staying in guest room…"
+            placeholder="Tell the butler about upcoming events that affect the home's climate controls."
             .value=${this._draft}
             ?disabled=${busy}
             @input=${(e2) => {
@@ -2239,6 +2244,7 @@ let HvacButlerCard = class extends i {
     this._status = "idle";
     this._spaces = [];
     this._entries = [];
+    this._latestPlan = null;
     this._selectedSpaceId = "";
     this._selectedEntry = null;
     this._showBriefModal = false;
@@ -2276,7 +2282,7 @@ let HvacButlerCard = class extends i {
   }
   setConfig(config) {
     this._config = {
-      limit: 50,
+      days: 2,
       ...config
     };
     if (config.space_id) {
@@ -2384,16 +2390,21 @@ let HvacButlerCard = class extends i {
     }
     this._fetching = true;
     try {
-      const resp = await this.hass.callWS({
+      const wsMsg = {
         type: "hvac_butler/journal",
-        limit: this._config.limit ?? 50
-      });
+        days: this._config.days ?? 2
+      };
+      if (this._config.limit !== void 0) {
+        wsMsg.limit = this._config.limit;
+      }
+      const resp = await this.hass.callWS(wsMsg);
       this._clearRetryTimer();
       this._retryAttempt = 0;
       this._reconnecting = false;
       this._status = resp.status || "idle";
       this._spaces = resp.spaces || [];
       this._entries = resp.entries || [];
+      this._latestPlan = resp.latest_plan ?? null;
       this._error = null;
       this._runningPlan = this._status === "planning" || this._status === "revising";
       const validIds = /* @__PURE__ */ new Set([
@@ -2584,6 +2595,7 @@ let HvacButlerCard = class extends i {
             ` : b`
               <butler-timeline-view
                 .entries=${this._entries}
+                .latestPlan=${this._latestPlan}
                 .selectedSpaceId=${this._selectedSpaceId}
                 @select-entry=${(e2) => {
       this._selectedEntry = e2.detail.entry;
@@ -2840,6 +2852,9 @@ __decorateClass([
 __decorateClass([
   r()
 ], HvacButlerCard.prototype, "_entries", 2);
+__decorateClass([
+  r()
+], HvacButlerCard.prototype, "_latestPlan", 2);
 __decorateClass([
   r()
 ], HvacButlerCard.prototype, "_selectedSpaceId", 2);

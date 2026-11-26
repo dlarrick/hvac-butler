@@ -12,6 +12,7 @@ import {
 @customElement('butler-timeline-view')
 export class ButlerTimelineView extends LitElement {
   @property({ attribute: false }) entries: JournalEntry[] = [];
+  @property({ attribute: false }) latestPlan: JournalEntry | null = null;
   @property({ type: String }) selectedSpaceId = '';
 
   @state() private _expandedStreaks: Set<string> = new Set();
@@ -363,7 +364,14 @@ export class ButlerTimelineView extends LitElement {
     }
 
     const items = groupTimelineItems(spaceEntries, this.selectedSpaceId);
-    const latestPlan = spaceEntries.find((e) => e.kind === 'plan') ?? null;
+    const fallbackPlan =
+      this.latestPlan &&
+      (isAll ||
+        (this.latestPlan.spaces && this.selectedSpaceId in this.latestPlan.spaces))
+        ? this.latestPlan
+        : null;
+    const latestPlan =
+      spaceEntries.find((e) => e.kind === 'plan') ?? fallbackPlan;
 
     let pinnedPlanText = '';
     if (latestPlan) {

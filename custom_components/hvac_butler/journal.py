@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 JOURNAL_STORAGE_VERSION = 1
 JOURNAL_STORAGE_KEY = f"{DOMAIN}.journal"
 JOURNAL_EVENT_SCHEMA_VERSION = 1
-JOURNAL_MAX_ENTRIES = 100
+JOURNAL_MAX_ENTRIES = 500
 JOURNAL_RETENTION_DAYS = 7
 
 
@@ -107,20 +107,54 @@ class HvacButlerJournal:
         self,
         *,
         space_id: str | None = None,
-        limit: int = 50,
+        days: int | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Return newest-first journal entries, optionally filtered to a space."""
+        """Return newest-first journal entries filtered by optional time window and space."""
         self._prune()
-        clamped_limit = max(1, min(int(limit), self._max_entries))
-        if not space_id:
-            return list(self._entries[:clamped_limit])
+        entries = list(self._entries)
 
-        filtered = [
-            e
-            for e in self._entries
-            if isinstance(e.get("spaces"), dict) and space_id in e["spaces"]
-        ]
-        return filtered[:clamped_limit]
+        if days is not None:
+            window_days = max(1, min(int(days), self._retention_days))
+            cutoff = dt_util.now() - timedelta(days=window_days)
+            windowed: list[dict[str, Any]] = []
+            for entry in entries:
+                ts_raw = entry.get("timestamp")
+                if isinstance(ts_raw, str):
+                    parsed = dt_util.parse_datetime(ts_raw)
+                    if parsed is not None:
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=cutoff.tzinfo)
+                        if parsed < cutoff:
+                            continue
+                windowed.append(entry)
+            entries = windowed
+
+        if space_id:
+            entries = [
+                e
+                for e in entries
+                if isinstance(e.get("spaces"), dict) and space_id in e["spaces"]
+            ]
+
+        if limit is not None:
+            clamped_limit = max(1, min(int(limit), self._max_entries))
+            return entries[:clamped_limit]
+
+        return entries[: self._max_entries]
+
+    def get_latest_plan(self, *, space_id: str | None = None) -> dict[str, Any] | None:
+        """Return the most recent 'plan' keyframe entry in the retained journal."""
+        self._prune()
+        for entry in self._entries:
+            if entry.get("kind") != "plan":
+                continue
+            if space_id and not (
+                isinstance(entry.get("spaces"), dict) and space_id in entry["spaces"]
+            ):
+                continue
+            return entry
+        return None
 
     def get_recent_context_since_keyframe(
         self,
