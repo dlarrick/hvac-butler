@@ -29,16 +29,15 @@ days: 2  # optional (1–7 days, default: 2)
 
 ![HVAC Butler Dashboard Card](docs/images/hvac_butler_card.png)
 
-- **Call Butler:** Tap **Call Butler** in the header to brief the Butler on upcoming events (e.g., *"Tomorrow is Thanksgiving, 8 people, heavy cooking, mother-in-law staying in the guest room"*). Click **Done** to commit the Butler's notes to `calendar.hvac_butler_notes` (and trigger an immediate re-evaluation if active today/tonight), or **Cancel** to discard.
+- **Activity Timeline (All Spaces or Per-Space):** Switch between **All spaces** and any individual space to browse Butler's decisions in a scrollable timeline (default 2 days), or click **Check Now** / **Run Plan** to trigger an on-demand intraday check or daily plan.
+  - **Pinned Plan Bar & Noise Reduction:** A 1-line **Plan** call-out stays pinned at the top while each daily `Plan` also keeps its chronological spot in the timeline; consecutive unchanged checks collapse into an expandable row.
+  - **Deterministic Badges:** Primary badges (`Plan`, `Presence`, `Arm/Disarm`, `Calendar`, `Manual Check`) show *what triggered* the run; secondary badges (`Adjusted`, `Comfort Boost`, `Fallback`) show actions actually taken.
+  - **Detail Modal:** Click any row for the AI's verbatim commentary, before/after schedule diffs, and collapsible technical details.
+- **Call Butler & Private Calendar:** Tap **Call Butler** in the header to discuss upcoming events (e.g., guests, hosting, travel, or late bedtimes). Click **Done** to save Butler's notes to `calendar.hvac_butler_notes` (and re-evaluate immediately if active today/tonight), or **Cancel** to discard.
 
 ![Call Butler Briefing Dialog](docs/images/hvac_butler_call_modal.png)
 
 ![HVAC Butler Private Calendar](docs/images/hvac_butler_calendar.png)
-
-- **Activity Timeline (All Spaces or Per-Space):** Switch between **All spaces** and any individual space from the header dropdown to browse up to 7 days of Butler decisions in a compact, scrollable timeline (newest first), or click **Check Now** / **Run Plan** to trigger an on-demand intraday check or macro-plan.
-- **Pinned Plan Bar & Noise Reduction:** A 1-line **Plan** call-out stays pinned above the scroll area for quick access while every `Plan` entry also remains in its true chronological spot in the timeline; consecutive unchanged intraday checks collapse into a single expandable row.
-- **Deterministic Trigger Badges:** Each entry's primary badge (`Plan`, `Presence`, `Arm/Disarm`, `Calendar`, `Manual Check`) is 100% deterministic and indicates **what triggered the evaluation**, not an AI result. Secondary badges (`Adjusted`, `Comfort Boost`, `Fallback`) reflect deterministic actions actually taken.
-- **Full-Context Detail Modal:** Click any row to read the AI's verbatim commentary for the selected space (with before/after schedule diffs), plus the rest of the home's commentary from that same run and collapsible technical details.
 
 ## Installation
 
