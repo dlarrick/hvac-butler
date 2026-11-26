@@ -11,7 +11,7 @@ from .coordinator import HvacButlerCoordinator, async_unregister_fusion_presets
 from .frontend_loader import async_register_frontend
 from .websocket_api import async_register_websocket_commands
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON, Platform.CALENDAR]
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

@@ -791,14 +791,14 @@ function computeChangedDays(rec) {
 function capitalize(str) {
   return str ? str.charAt(0).toUpperCase() + str.slice(1) : "";
 }
-var __defProp$2 = Object.defineProperty;
-var __getOwnPropDesc$2 = Object.getOwnPropertyDescriptor;
-var __decorateClass$2 = (decorators, target, key, kind) => {
-  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc$2(target, key) : target;
+var __defProp$3 = Object.defineProperty;
+var __getOwnPropDesc$3 = Object.getOwnPropertyDescriptor;
+var __decorateClass$3 = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc$3(target, key) : target;
   for (var i2 = decorators.length - 1, decorator; i2 >= 0; i2--)
     if (decorator = decorators[i2])
       result = (kind ? decorator(target, key, result) : decorator(result)) || result;
-  if (kind && result) __defProp$2(target, key, result);
+  if (kind && result) __defProp$3(target, key, result);
   return result;
 };
 let ButlerTimelineView = class extends i {
@@ -831,6 +831,7 @@ let ButlerTimelineView = class extends i {
     const t2 = (_a2 = entry.trigger) == null ? void 0 : _a2.type;
     if (t2 === "presence_change") return "badge-trigger-presence";
     if (t2 === "alarm_change") return "badge-trigger-alarm";
+    if (t2 === "calendar_event") return "badge-trigger-calendar";
     return "badge-trigger-plan";
   }
   _renderEntryRow(entry) {
@@ -891,6 +892,7 @@ let ButlerTimelineView = class extends i {
     `;
   }
   render() {
+    var _a2;
     if (!this.selectedSpaceId) {
       return b`<div class="empty-state">No spaces configured in HVAC Butler.</div>`;
     }
@@ -907,39 +909,68 @@ let ButlerTimelineView = class extends i {
       `;
     }
     const items = groupTimelineItems(spaceEntries, this.selectedSpaceId);
+    const latestPlan = spaceEntries.find((e2) => e2.kind === "plan") ?? null;
+    let pinnedPlanText = "";
+    if (latestPlan) {
+      const rec = isAll ? void 0 : (_a2 = latestPlan.spaces) == null ? void 0 : _a2[this.selectedSpaceId];
+      pinnedPlanText = !isAll ? (rec == null ? void 0 : rec.summary) || latestPlan.headline || "Plan updated." : latestPlan.headline || "Plan updated.";
+    }
     return b`
-      <div class="timeline">
-        ${items.map((item) => {
+      ${latestPlan ? b`
+            <div
+              class="pinned-plan"
+              role="button"
+              tabindex="0"
+              title="Latest daily plan — click for full schedule details"
+              @click=${() => this._selectEntry(latestPlan)}
+              @keydown=${(e2) => {
+      if (e2.key === "Enter" || e2.key === " ") {
+        e2.preventDefault();
+        this._selectEntry(latestPlan);
+      }
+    }}
+            >
+              <div class="pinned-plan-left">
+                <span class="badge badge-trigger-plan">Plan</span>
+                <span class="pinned-plan-text">${pinnedPlanText}</span>
+              </div>
+              <span class="time">${formatShortTimestamp(latestPlan.timestamp)}</span>
+            </div>
+          ` : A}
+      <div class="timeline-scroll">
+        <div class="timeline">
+          ${items.map((item) => {
       if (item.type === "entry") {
         return this._renderEntryRow(item.entry);
       }
       const expanded = this._expandedStreaks.has(item.id);
       return b`
-            <div
-              class="collapsed-row"
-              role="button"
-              tabindex="0"
-              @click=${() => this._toggleStreak(item.id)}
-              @keydown=${(e2) => {
+              <div
+                class="collapsed-row"
+                role="button"
+                tabindex="0"
+                @click=${() => this._toggleStreak(item.id)}
+                @keydown=${(e2) => {
         if (e2.key === "Enter" || e2.key === " ") {
           e2.preventDefault();
           this._toggleStreak(item.id);
         }
       }}
-            >
-              <span class="collapsed-left">
-                <span>${expanded ? "▾" : "▸"}</span>
-                <span>${item.entries.length} unchanged checks</span>
-              </span>
-              <span class="time">${formatStreakRange(item.entries)}</span>
-            </div>
-            ${expanded ? b`
-                  <div class="streak-children">
-                    ${item.entries.map((e2) => this._renderEntryRow(e2))}
-                  </div>
-                ` : A}
-          `;
+              >
+                <span class="collapsed-left">
+                  <span>${expanded ? "▾" : "▸"}</span>
+                  <span>${item.entries.length} unchanged checks</span>
+                </span>
+                <span class="time">${formatStreakRange(item.entries)}</span>
+              </div>
+              ${expanded ? b`
+                    <div class="streak-children">
+                      ${item.entries.map((e2) => this._renderEntryRow(e2))}
+                    </div>
+                  ` : A}
+            `;
     })}
+        </div>
       </div>
     `;
   }
@@ -956,17 +987,78 @@ ButlerTimelineView.styles = i$3`
       font-size: 0.9rem;
     }
 
+    .pinned-plan {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(3, 169, 244, 0.28);
+      border-left: 3px solid var(--primary-color, #03a9f4);
+      background: rgba(3, 169, 244, 0.07);
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+      min-width: 0;
+    }
+
+    .pinned-plan:hover {
+      background: rgba(3, 169, 244, 0.14);
+      border-color: var(--primary-color, #03a9f4);
+    }
+
+    .pinned-plan-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .pinned-plan-text {
+      font-size: 0.8rem;
+      color: var(--primary-text-color, #e1e1e1);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    .timeline-scroll {
+      max-height: 360px;
+      overflow-y: auto;
+      overscroll-behavior-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-right: 2px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    }
+
+    .timeline-scroll::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    .timeline-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+    }
+
+    .timeline-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
     .timeline {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     }
 
     .row {
       display: flex;
       flex-direction: column;
-      gap: 5px;
-      padding: 10px 12px;
+      gap: 4px;
+      padding: 8px 10px;
       border-radius: 10px;
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.1));
       background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
@@ -1029,6 +1121,11 @@ ButlerTimelineView.styles = i$3`
     .badge-trigger-alarm {
       background: rgba(255, 152, 0, 0.18);
       color: #ffb74d;
+    }
+
+    .badge-trigger-calendar {
+      background: rgba(0, 188, 212, 0.18);
+      color: #4dd0e1;
     }
 
     .badge-adjusted {
@@ -1101,26 +1198,26 @@ ButlerTimelineView.styles = i$3`
       border-left: 2px solid var(--divider-color, rgba(255, 255, 255, 0.12));
     }
   `;
-__decorateClass$2([
+__decorateClass$3([
   n2({ attribute: false })
 ], ButlerTimelineView.prototype, "entries", 2);
-__decorateClass$2([
+__decorateClass$3([
   n2({ type: String })
 ], ButlerTimelineView.prototype, "selectedSpaceId", 2);
-__decorateClass$2([
+__decorateClass$3([
   r()
 ], ButlerTimelineView.prototype, "_expandedStreaks", 2);
-ButlerTimelineView = __decorateClass$2([
+ButlerTimelineView = __decorateClass$3([
   t("butler-timeline-view")
 ], ButlerTimelineView);
-var __defProp$1 = Object.defineProperty;
-var __getOwnPropDesc$1 = Object.getOwnPropertyDescriptor;
-var __decorateClass$1 = (decorators, target, key, kind) => {
-  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc$1(target, key) : target;
+var __defProp$2 = Object.defineProperty;
+var __getOwnPropDesc$2 = Object.getOwnPropertyDescriptor;
+var __decorateClass$2 = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc$2(target, key) : target;
   for (var i2 = decorators.length - 1, decorator; i2 >= 0; i2--)
     if (decorator = decorators[i2])
       result = (kind ? decorator(target, key, result) : decorator(result)) || result;
-  if (kind && result) __defProp$1(target, key, result);
+  if (kind && result) __defProp$2(target, key, result);
   return result;
 };
 let ButlerDetailModal = class extends i {
@@ -1619,15 +1716,509 @@ ButlerDetailModal.styles = i$3`
       word-break: break-word;
     }
   `;
-__decorateClass$1([
+__decorateClass$2([
   n2({ attribute: false })
 ], ButlerDetailModal.prototype, "entry", 2);
-__decorateClass$1([
+__decorateClass$2([
   n2({ type: String })
 ], ButlerDetailModal.prototype, "selectedSpaceId", 2);
-ButlerDetailModal = __decorateClass$1([
+ButlerDetailModal = __decorateClass$2([
   t("butler-detail-modal")
 ], ButlerDetailModal);
+const BUTLER_HEAD_DATA_URI = "data:image/png;base64,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";
+var __defProp$1 = Object.defineProperty;
+var __getOwnPropDesc$1 = Object.getOwnPropertyDescriptor;
+var __decorateClass$1 = (decorators, target, key, kind) => {
+  var result = kind > 1 ? void 0 : kind ? __getOwnPropDesc$1(target, key) : target;
+  for (var i2 = decorators.length - 1, decorator; i2 >= 0; i2--)
+    if (decorator = decorators[i2])
+      result = (kind ? decorator(target, key, result) : decorator(result)) || result;
+  if (kind && result) __defProp$1(target, key, result);
+  return result;
+};
+function greetingForHour(hour) {
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+let ButlerBriefModal = class extends i {
+  constructor() {
+    super(...arguments);
+    this._messages = [];
+    this._pendingActions = [];
+    this._draft = "";
+    this._sending = false;
+    this._committing = false;
+    this._error = null;
+    this._handleKeydown = (e2) => {
+      if (e2.key === "Escape" && !this._committing) {
+        this._cancel();
+      }
+    };
+  }
+  connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener("keydown", this._handleKeydown);
+    if (this._messages.length === 0) {
+      const greeting = greetingForHour((/* @__PURE__ */ new Date()).getHours());
+      this._messages = [
+        {
+          role: "assistant",
+          content: `${greeting}! Tell me about any upcoming guests, events, travel, or schedule changes—I'll ask any quick HVAC questions and note them on my calendar.`
+        }
+      ];
+    }
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    window.removeEventListener("keydown", this._handleKeydown);
+  }
+  _cancel() {
+    this.dispatchEvent(
+      new CustomEvent("close-brief", { bubbles: true, composed: true })
+    );
+  }
+  _scrollToBottom() {
+    void this.updateComplete.then(() => {
+      const el = this.renderRoot.querySelector(".messages");
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+  }
+  async _send() {
+    const text = this._draft.trim();
+    if (!text || !this.hass || this._sending || this._committing) return;
+    const nextMessages = [
+      ...this._messages,
+      { role: "user", content: text }
+    ];
+    this._messages = nextMessages;
+    this._draft = "";
+    this._error = null;
+    this._sending = true;
+    this._scrollToBottom();
+    try {
+      const resp = await this.hass.callWS({
+        type: "hvac_butler/brief",
+        messages: nextMessages
+      });
+      this._messages = [
+        ...nextMessages,
+        { role: "assistant", content: resp.reply || "Noted." }
+      ];
+      if (Array.isArray(resp.calendar_actions) && resp.calendar_actions.length > 0) {
+        this._pendingActions = resp.calendar_actions;
+      }
+      this._scrollToBottom();
+    } catch (err) {
+      this._error = err instanceof Error ? err.message : (err == null ? void 0 : err.message) || "Failed to reach HVAC Butler.";
+    } finally {
+      this._sending = false;
+    }
+  }
+  async _done() {
+    if (this._committing || this._sending) return;
+    const pendingText = this._draft.trim();
+    const finalMessages = pendingText ? [...this._messages, { role: "user", content: pendingText }] : [...this._messages];
+    const hasUserMessage = finalMessages.some((m2) => m2.role === "user");
+    if (!hasUserMessage || !this.hass) {
+      this._cancel();
+      return;
+    }
+    const actionsToSend = pendingText ? [] : this._pendingActions;
+    this._messages = finalMessages;
+    this._draft = "";
+    this._error = null;
+    this._committing = true;
+    try {
+      const resp = await this.hass.callWS({
+        type: "hvac_butler/brief_commit",
+        messages: finalMessages,
+        calendar_actions: actionsToSend
+      });
+      this.dispatchEvent(
+        new CustomEvent("brief-committed", {
+          detail: resp,
+          bubbles: true,
+          composed: true
+        })
+      );
+      this._cancel();
+    } catch (err) {
+      this._error = err instanceof Error ? err.message : (err == null ? void 0 : err.message) || "Failed to save calendar notes.";
+      this._committing = false;
+    }
+  }
+  render() {
+    const busy = this._sending || this._committing;
+    return b`
+      <div
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Call Butler"
+        @click=${(e2) => e2.stopPropagation()}
+      >
+        <div class="header">
+          <div class="header-left">
+            <img class="header-avatar" src=${BUTLER_HEAD_DATA_URI} alt="" />
+            <div class="header-titles">
+              <span class="header-title">Call Butler</span>
+              <span class="header-sub">
+                Discuss upcoming events for Butler's calendar
+              </span>
+            </div>
+          </div>
+          <button
+            class="close-btn"
+            aria-label="Close"
+            ?disabled=${this._committing}
+            @click=${this._cancel}
+          >
+            &times;
+          </button>
+        </div>
+
+        <div class="messages">
+          ${this._messages.map(
+      (m2) => b`
+              <div class="msg-row ${m2.role}">
+                ${m2.role === "assistant" ? b`<img class="msg-avatar" src=${BUTLER_HEAD_DATA_URI} alt="" />` : A}
+                <div class="bubble">${m2.content}</div>
+              </div>
+            `
+    )}
+          ${this._sending ? b`
+                <div class="msg-row assistant">
+                  <img class="msg-avatar" src=${BUTLER_HEAD_DATA_URI} alt="" />
+                  <div class="bubble typing">Thinking…</div>
+                </div>
+              ` : A}
+        </div>
+
+        ${this._error ? b`<div class="error-banner">${this._error}</div>` : A}
+
+        <div class="composer">
+          <textarea
+            rows="2"
+            placeholder="e.g. Tomorrow is Thanksgiving, 8 people, M-I-L staying in guest room…"
+            .value=${this._draft}
+            ?disabled=${busy}
+            @input=${(e2) => {
+      this._draft = e2.target.value;
+    }}
+            @keydown=${(e2) => {
+      if (e2.key === "Enter" && !e2.shiftKey) {
+        e2.preventDefault();
+        void this._send();
+      }
+    }}
+          ></textarea>
+          <button
+            class="send-btn"
+            ?disabled=${busy || !this._draft.trim()}
+            @click=${() => void this._send()}
+          >
+            Send
+          </button>
+        </div>
+
+        <div class="footer">
+          <button
+            class="cancel-btn"
+            ?disabled=${this._committing}
+            @click=${this._cancel}
+          >
+            Cancel
+          </button>
+          <button
+            class="done-btn"
+            ?disabled=${busy}
+            @click=${() => void this._done()}
+          >
+            ${this._committing ? "Saving…" : "Done"}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+};
+ButlerBriefModal.styles = i$3`
+    :host {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(2px);
+      box-sizing: border-box;
+    }
+
+    .dialog {
+      width: min(560px, 100%);
+      max-height: min(82vh, 640px);
+      display: flex;
+      flex-direction: column;
+      background: var(--card-background-color, #1c1c1c);
+      color: var(--primary-text-color, #e1e1e1);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.14));
+      border-radius: 14px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+      overflow: hidden;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--divider-color, rgba(255, 255, 255, 0.1));
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .header-avatar {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .header-titles {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .header-title {
+      font-size: 0.98rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .header-sub {
+      font-size: 0.74rem;
+      color: var(--secondary-text-color, #9e9e9e);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: var(--secondary-text-color, #9e9e9e);
+      font-size: 1.3rem;
+      line-height: 1;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 6px;
+    }
+
+    .close-btn:hover {
+      background: rgba(127, 127, 127, 0.18);
+      color: var(--primary-text-color, #fff);
+    }
+
+    .messages {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 180px;
+    }
+
+    .msg-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+    }
+
+    .msg-row.user {
+      justify-content: flex-end;
+    }
+
+    .msg-avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .bubble {
+      max-width: 84%;
+      padding: 8px 11px;
+      border-radius: 12px;
+      font-size: 0.86rem;
+      line-height: 1.42;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .msg-row.assistant .bubble {
+      background: var(--secondary-background-color, rgba(255, 255, 255, 0.07));
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.09));
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg-row.user .bubble {
+      background: rgba(3, 169, 244, 0.2);
+      border: 1px solid rgba(3, 169, 244, 0.35);
+      border-bottom-right-radius: 4px;
+    }
+
+    .typing {
+      color: var(--secondary-text-color, #9e9e9e);
+      font-style: italic;
+    }
+
+    .error-banner {
+      margin: 0 14px 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(244, 67, 54, 0.14);
+      color: var(--error-color, #ef5350);
+      font-size: 0.8rem;
+    }
+
+    .composer {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--divider-color, rgba(255, 255, 255, 0.1));
+    }
+
+    textarea {
+      flex: 1 1 auto;
+      resize: none;
+      background: var(--secondary-background-color, rgba(255, 255, 255, 0.06));
+      color: var(--primary-text-color, #e1e1e1);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.18));
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 0.86rem;
+      font-family: inherit;
+      line-height: 1.35;
+      min-height: 38px;
+      max-height: 110px;
+      box-sizing: border-box;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: var(--primary-color, #03a9f4);
+    }
+
+    .send-btn {
+      background: var(--secondary-background-color, rgba(255, 255, 255, 0.1));
+      color: var(--primary-text-color, #e1e1e1);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.22));
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .send-btn:hover:not(:disabled) {
+      background: rgba(127, 127, 127, 0.22);
+    }
+
+    .send-btn:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--divider-color, rgba(255, 255, 255, 0.1));
+      background: rgba(0, 0, 0, 0.14);
+    }
+
+    .cancel-btn {
+      background: transparent;
+      color: var(--secondary-text-color, #bdbdbd);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.2));
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .cancel-btn:hover:not(:disabled) {
+      background: rgba(127, 127, 127, 0.16);
+      color: var(--primary-text-color, #fff);
+    }
+
+    .done-btn {
+      background: var(--primary-color, #03a9f4);
+      color: var(--text-primary-color, #fff);
+      border: none;
+      border-radius: 8px;
+      padding: 6px 16px;
+      font-size: 0.84rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .done-btn:hover:not(:disabled) {
+      opacity: 0.92;
+    }
+
+    .done-btn:disabled,
+    .cancel-btn:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  `;
+__decorateClass$1([
+  n2({ attribute: false })
+], ButlerBriefModal.prototype, "hass", 2);
+__decorateClass$1([
+  r()
+], ButlerBriefModal.prototype, "_messages", 2);
+__decorateClass$1([
+  r()
+], ButlerBriefModal.prototype, "_pendingActions", 2);
+__decorateClass$1([
+  r()
+], ButlerBriefModal.prototype, "_draft", 2);
+__decorateClass$1([
+  r()
+], ButlerBriefModal.prototype, "_sending", 2);
+__decorateClass$1([
+  r()
+], ButlerBriefModal.prototype, "_committing", 2);
+__decorateClass$1([
+  r()
+], ButlerBriefModal.prototype, "_error", 2);
+ButlerBriefModal = __decorateClass$1([
+  t("butler-brief-modal")
+], ButlerBriefModal);
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __decorateClass = (decorators, target, key, kind) => {
@@ -1650,6 +2241,7 @@ let HvacButlerCard = class extends i {
     this._entries = [];
     this._selectedSpaceId = "";
     this._selectedEntry = null;
+    this._showBriefModal = false;
     this._loading = true;
     this._reconnecting = false;
     this._runningPlan = false;
@@ -1913,9 +2505,21 @@ let HvacButlerCard = class extends i {
     return b`
       <ha-card>
         <div class="card-header">
-          <div class="title-group">
-            <span class="title">${title}</span>
-            <span class="status-pill ${pill.cls}">${pill.label}</span>
+          <div class="header-top">
+            <div class="title-group">
+              <span class="title">${title}</span>
+              <span class="status-pill ${pill.cls}">${pill.label}</span>
+            </div>
+            <button
+              class="call-butler-btn"
+              @click=${() => {
+      this._showBriefModal = true;
+    }}
+              title="Talk to HVAC Butler about upcoming events or schedule changes"
+            >
+              <img class="call-butler-avatar" src=${BUTLER_HEAD_DATA_URI} alt="" />
+              <span>Call Butler</span>
+            </button>
           </div>
           <div class="controls">
             ${this._spaces.length > 0 ? b`
@@ -1997,6 +2601,18 @@ let HvacButlerCard = class extends i {
     }}
             ></butler-detail-modal>
           ` : A}
+
+      ${this._showBriefModal ? b`
+            <butler-brief-modal
+              .hass=${this.hass}
+              @close-brief=${() => {
+      this._showBriefModal = false;
+    }}
+              @brief-committed=${() => {
+      void this._fetchJournal();
+    }}
+            ></butler-brief-modal>
+          ` : A}
     `;
   }
 };
@@ -2006,17 +2622,17 @@ HvacButlerCard.styles = i$3`
     }
 
     ha-card {
-      padding: 14px 16px 16px;
+      padding: 12px 14px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
     }
 
     .card-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 6px 8px;
       flex-wrap: wrap;
     }
 
@@ -2029,50 +2645,98 @@ HvacButlerCard.styles = i$3`
 
     .title {
       font-size: 1.05rem;
-      font-weight: 600;
+      font-weight: 700;
       color: var(--primary-text-color, #e1e1e1);
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .status-pill {
-      font-size: 0.72rem;
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.74rem;
       font-weight: 600;
-      padding: 2px 8px;
+      padding: 2px 9px;
       border-radius: 999px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      white-space: nowrap;
     }
 
     .status-ok {
-      background: rgba(76, 175, 80, 0.16);
-      color: #81c784;
+      background: rgba(52, 211, 153, 0.14);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, 0.35);
     }
 
     .status-busy {
-      background: rgba(3, 169, 244, 0.18);
-      color: #29b6f6;
+      background: rgba(56, 189, 248, 0.16);
+      color: #7dd3fc;
+      border: 1px solid rgba(56, 189, 248, 0.35);
     }
 
     .status-fallback {
-      background: rgba(255, 152, 0, 0.18);
-      color: #ffb74d;
+      background: rgba(251, 191, 36, 0.14);
+      color: #fbbf24;
+      border: 1px solid rgba(251, 191, 36, 0.35);
     }
 
     .status-error {
-      background: rgba(244, 67, 54, 0.18);
-      color: #ef5350;
+      background: rgba(244, 67, 54, 0.16);
+      color: #f87171;
+      border: 1px solid rgba(244, 67, 54, 0.35);
     }
 
     .status-idle {
-      background: rgba(127, 127, 127, 0.16);
+      background: rgba(127, 127, 127, 0.14);
       color: var(--secondary-text-color, #9e9e9e);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .call-butler-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--primary-text-color, #e1e1e1);
+      border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.2));
+      border-radius: 999px;
+      padding: 3px 10px 3px 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .call-butler-btn:hover {
+      background: rgba(3, 169, 244, 0.14);
+      border-color: rgba(3, 169, 244, 0.45);
+    }
+
+    .call-butler-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: block;
     }
 
     .controls {
       display: flex;
       align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
+      gap: 6px;
+      flex-wrap: nowrap;
+      min-width: 0;
+      width: 100%;
     }
 
     .space-select {
@@ -2080,10 +2744,13 @@ HvacButlerCard.styles = i$3`
       color: var(--primary-text-color, #e1e1e1);
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.16));
       border-radius: 8px;
-      padding: 5px 10px;
-      font-size: 0.85rem;
+      padding: 4px 8px;
+      font-size: 0.8rem;
       font-family: inherit;
       cursor: pointer;
+      min-width: 0;
+      flex: 1 1 auto;
+      text-overflow: ellipsis;
     }
 
     .run-btn {
@@ -2091,12 +2758,13 @@ HvacButlerCard.styles = i$3`
       color: var(--text-primary-color, #fff);
       border: none;
       border-radius: 8px;
-      padding: 6px 11px;
-      font-size: 0.82rem;
+      padding: 5px 10px;
+      font-size: 0.78rem;
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
       transition: opacity 0.15s ease;
     }
 
@@ -2114,12 +2782,13 @@ HvacButlerCard.styles = i$3`
       color: var(--primary-text-color, #e1e1e1);
       border: 1px solid var(--divider-color, rgba(255, 255, 255, 0.22));
       border-radius: 8px;
-      padding: 5px 10px;
-      font-size: 0.82rem;
+      padding: 4px 9px;
+      font-size: 0.78rem;
       font-weight: 500;
       font-family: inherit;
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
       transition: background 0.15s ease, opacity 0.15s ease;
     }
 
@@ -2177,6 +2846,9 @@ __decorateClass([
 __decorateClass([
   r()
 ], HvacButlerCard.prototype, "_selectedEntry", 2);
+__decorateClass([
+  r()
+], HvacButlerCard.prototype, "_showBriefModal", 2);
 __decorateClass([
   r()
 ], HvacButlerCard.prototype, "_loading", 2);

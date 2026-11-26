@@ -13,12 +13,14 @@ from typing import Any
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_call_later,
+    async_track_point_in_time,
     async_track_state_change_event,
     async_track_time_change,
 )
 from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
 
+from .calendar_store import ButlerCalendarEvent, ButlerCalendarStore
 from .const import (
     BUTLER_PRESET_NAME,
     CONF_AI_TASK_ENTITY,
@@ -63,6 +65,7 @@ from .prompts import (
     NightlyPlanContext,
     SpaceIntradayContext,
     SpaceNightlyContext,
+    build_briefing_prompt,
     build_intraday_prompt,
     build_nightly_prompt,
     summarize_forecast,
@@ -188,7 +191,9 @@ class HvacButlerCoordinator:
         self._last_intraday_by_space: dict[str, datetime] = {}
         self._last_presence_state_by_space: dict[str, str] = {}
         self._entity_listeners: list[Callable[[], None]] = []
+        self._calendar_boundary_cancel: Callable[[], None] | None = None
         self.journal = HvacButlerJournal(hass)
+        self.calendar_store = ButlerCalendarStore(hass)
 
     @property
     def guardrails(self) -> GuardrailConfig:
@@ -239,6 +244,166 @@ class HvacButlerCoordinator:
             },
         )
 
+    def notify_state_changed(self) -> None:
+        """Public helper for entity platforms to broadcast coordinator state updates."""
+        self._notify_entities()
+
+    def reschedule_calendar_boundary(self) -> None:
+        """Schedule a single point-in-time trigger for the next timed calendar event boundary."""
+        if self._calendar_boundary_cancel is not None:
+            self._calendar_boundary_cancel()
+            self._calendar_boundary_cancel = None
+
+        nxt = self.calendar_store.get_next_boundary(dt_util.now())
+        if nxt is None:
+            return
+        boundary_dt, phase, ev = nxt
+
+        @callback
+        def _on_boundary(
+            _now: datetime, _ev: ButlerCalendarEvent = ev, _phase: str = phase
+        ) -> None:
+            self._calendar_boundary_cancel = None
+            trigger = {
+                "type": "calendar_event",
+                "phase": _phase,
+                "summary": _ev.summary,
+                "event_uid": _ev.uid,
+            }
+            target_spaces = list(_ev.spaces) if _ev.spaces else None
+            self.hass.async_create_task(
+                self.async_run_intraday_revision(
+                    trigger_event=trigger,
+                    target_space_ids=target_spaces,
+                    bypass_cooldown=True,
+                )
+            )
+            self.reschedule_calendar_boundary()
+            self._notify_entities()
+
+        self._calendar_boundary_cancel = async_track_point_in_time(
+            self.hass, _on_boundary, boundary_dt
+        )
+
+    async def async_brief_butler(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        finalize: bool = False,
+    ) -> dict[str, Any]:
+        """Run one conversational briefing turn via ai_task.generate_data."""
+        now_local = dt_util.now()
+        today_day = DAYS_OF_WEEK[now_local.weekday()]
+        spaces_info: list[dict[str, Any]] = []
+        for space_conf in self.spaces:
+            climate_eid = space_conf.get(CONF_CLIMATE_ENTITY)
+            if not climate_eid:
+                continue
+            space_id, space_name = derive_space_id_and_name(self.hass, climate_eid)
+            spaces_info.append(
+                {
+                    "space_id": space_id,
+                    "name": space_name,
+                    "default_mode": space_conf.get(CONF_DEFAULT_MODE, MODE_OCCUPIED),
+                    "space_notes": str(space_conf.get(CONF_SPACE_NOTES, "")),
+                }
+            )
+
+        upcoming = [
+            ev.to_prompt_dict()
+            for ev in self.calendar_store.get_upcoming_events(now_local, days=30)
+        ]
+        prompt = build_briefing_prompt(
+            now_iso=now_local.isoformat(),
+            today_day=today_day,
+            spaces=spaces_info,
+            house_notes=str(self.config.get(CONF_HOUSE_NOTES, "")),
+            upcoming_events=upcoming,
+            messages=messages,
+            finalize=finalize,
+        )
+        parsed = await self._async_call_ai_task("hvac_butler_briefing", prompt)
+        reply = str(parsed.get("reply") or "Noted.")
+        ready = bool(parsed.get("ready_to_commit", False))
+        actions = parsed.get("calendar_actions")
+        if not isinstance(actions, list):
+            actions = []
+        return {
+            "reply": reply,
+            "ready_to_commit": ready,
+            "calendar_actions": actions,
+        }
+
+    async def async_commit_briefing(
+        self,
+        messages: list[dict[str, str]],
+        proposed_actions: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Finalize and commit briefing calendar actions, then re-evaluate if active."""
+        actions = list(proposed_actions or [])
+        summary_reply = ""
+        has_user_msg = any(
+            str(m.get("role", "")).lower() == "user"
+            and str(m.get("content", "")).strip()
+            for m in messages
+        )
+        if not actions and has_user_msg:
+            final_res = await self.async_brief_butler(messages, finalize=True)
+            actions = list(final_res.get("calendar_actions") or [])
+            summary_reply = str(final_res.get("reply") or "")
+
+        valid_space_ids = {
+            derive_space_id_and_name(self.hass, str(sc[CONF_CLIMATE_ENTITY]))[0]
+            for sc in self.spaces
+            if sc.get(CONF_CLIMATE_ENTITY)
+        }
+        now_local = dt_util.now()
+        counts, affected = await self.calendar_store.async_apply_actions(
+            actions, now=now_local, valid_space_ids=valid_space_ids
+        )
+        self.reschedule_calendar_boundary()
+        self._notify_entities()
+
+        # Immediate re-evaluation if any committed event affects today/tonight
+        # or (after 21:00) tomorrow's already-planned window.
+        triggered_reeval = False
+        if any(counts.values()):
+            end_of_today = now_local.replace(
+                hour=23, minute=59, second=59, microsecond=0
+            )
+            tomorrow_end = end_of_today + timedelta(days=1)
+            affects_today = any(
+                ev.start_dt() <= end_of_today and ev.end_dt() > now_local
+                for ev in affected
+            )
+            affects_tomorrow = any(
+                ev.start_dt() <= tomorrow_end and ev.end_dt() > end_of_today
+                for ev in affected
+            )
+            if now_local.hour >= NIGHTLY_PLAN_HOUR and (
+                affects_tomorrow or affects_today
+            ):
+                triggered_reeval = True
+                self.hass.async_create_task(self.async_run_nightly_plan())
+            elif affects_today:
+                triggered_reeval = True
+                trigger = {
+                    "type": "calendar_event",
+                    "phase": "updated",
+                    "summary": affected[0].summary if affected else "Calendar updated",
+                }
+                self.hass.async_create_task(
+                    self.async_run_intraday_revision(
+                        trigger_event=trigger, bypass_cooldown=True
+                    )
+                )
+
+        return {
+            "committed": counts,
+            "summary_reply": summary_reply,
+            "triggered_reeval": triggered_reeval,
+        }
+
     def get_spaces_summary(self) -> list[dict[str, Any]]:
         """Return configured spaces with live preset metadata for dashboard cards."""
         result: list[dict[str, Any]] = []
@@ -264,6 +429,8 @@ class HvacButlerCoordinator:
     async def async_setup(self) -> None:
         """Ensure native butler schedules exist and attach nightly + intraday listeners."""
         await self.journal.async_load()
+        await self.calendar_store.async_load()
+        self.reschedule_calendar_boundary()
         # 1. Ensure native schedule.<space>_butler exists for each configured space
         for space_conf in self.spaces:
             climate_eid = space_conf.get(CONF_CLIMATE_ENTITY)
@@ -355,6 +522,10 @@ class HvacButlerCoordinator:
         for cancel in self._deferred_cancels.values():
             cancel()
         self._deferred_cancels.clear()
+
+        if self._calendar_boundary_cancel is not None:
+            self._calendar_boundary_cancel()
+            self._calendar_boundary_cancel = None
 
         if unregister_presets and self._registered_fusion_climates:
             await async_unregister_fusion_presets(
@@ -813,6 +984,19 @@ class HvacButlerCoordinator:
             if tz:
                 location_context["time_zone"] = str(tz)
 
+        tonight_start_dt = now_local.replace(
+            hour=tonight_start_min // 60,
+            minute=tonight_start_min % 60,
+            second=0,
+            microsecond=0,
+        )
+        tomorrow_end_dt = (now_local + timedelta(days=2)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        nightly_day_notes = self.calendar_store.format_day_notes(
+            tonight_start_dt, tomorrow_end_dt
+        )
+
         ctx = NightlyPlanContext(
             timestamp_iso=now_local.isoformat(),
             tonight_day=tonight_day,
@@ -823,6 +1007,7 @@ class HvacButlerCoordinator:
             today_start_time=today_start_time,
             location_context=location_context,
             house_notes=str(self.config.get(CONF_HOUSE_NOTES, "")),
+            day_notes=nightly_day_notes,
         )
         prompt = build_nightly_prompt(ctx, self.guardrails)
 
@@ -1144,6 +1329,8 @@ class HvacButlerCoordinator:
             if raw_trigger_type == "presence_change"
             else "Arm/Disarm"
             if raw_trigger_type == "alarm_change"
+            else "Calendar"
+            if raw_trigger_type == "calendar_event"
             else "Manual Check"
             if raw_trigger_type == "manual_intraday"
             else raw_trigger_type.replace("_", " ").title()
@@ -1157,6 +1344,12 @@ class HvacButlerCoordinator:
         recent_events = self.journal.get_recent_context_since_keyframe(
             target_space_ids=list(space_meta.keys())
         )
+        end_of_today_dt = (now_local + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        intraday_day_notes = self.calendar_store.format_day_notes(
+            now_local, end_of_today_dt
+        )
         ctx = IntradayPlanContext(
             timestamp_iso=now_local.isoformat(),
             current_day=current_day,
@@ -1167,6 +1360,7 @@ class HvacButlerCoordinator:
             current_alarm_state=current_alarm_state,
             recent_events=recent_events,
             house_notes=str(self.config.get(CONF_HOUSE_NOTES, "")),
+            day_notes=intraday_day_notes,
         )
         prompt = build_intraday_prompt(ctx, self.guardrails)
 
