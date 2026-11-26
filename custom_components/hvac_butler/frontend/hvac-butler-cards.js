@@ -2515,7 +2515,7 @@ let HvacButlerCard = class extends i {
     const isBusy = this._runningPlan || this._status === "planning" || this._status === "revising";
     return b`
       <ha-card>
-        <div class="card-header">
+        <div class="butler-header">
           <div class="header-top">
             <div class="title-group">
               <span class="title">${title}</span>
@@ -2640,12 +2640,14 @@ HvacButlerCard.styles = i$3`
       gap: 8px;
     }
 
-    .card-header {
+    .butler-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 6px 8px;
       flex-wrap: wrap;
+      padding: 0;
+      margin: 0;
     }
 
     .title-group {

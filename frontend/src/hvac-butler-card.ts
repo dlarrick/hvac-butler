@@ -56,12 +56,14 @@ export class HvacButlerCard extends LitElement {
       gap: 8px;
     }
 
-    .card-header {
+    .butler-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 6px 8px;
       flex-wrap: wrap;
+      padding: 0;
+      margin: 0;
     }
 
     .title-group {
@@ -555,7 +557,7 @@ export class HvacButlerCard extends LitElement {
 
     return html`
       <ha-card>
-        <div class="card-header">
+        <div class="butler-header">
           <div class="header-top">
             <div class="title-group">
               <span class="title">${title}</span>
