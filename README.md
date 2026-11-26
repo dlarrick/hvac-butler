@@ -27,7 +27,7 @@ type: custom:hvac-butler-card
 days: 2  # optional (1–7 days, default: 2)
 ```
 
-![HVAC Butler Dashboard Card](docs/images/hvac_butler_card.png)
+<img src="docs/images/hvac_butler_card.png" alt="HVAC Butler Dashboard Card" width="370">
 
 - **Activity Timeline (All Spaces or Per-Space):** Switch between **All spaces** and any individual space to browse Butler's decisions in a scrollable timeline (default 2 days), or click **Check Now** / **Run Plan** to trigger an on-demand intraday check or daily plan.
   - **Pinned Plan Bar & Noise Reduction:** A 1-line **Plan** call-out stays pinned at the top while each daily `Plan` also keeps its chronological spot in the timeline; consecutive unchanged checks collapse into an expandable row.
@@ -35,9 +35,9 @@ days: 2  # optional (1–7 days, default: 2)
   - **Detail Modal:** Click any row for the AI's verbatim commentary, before/after schedule diffs, and collapsible technical details.
 - **Call Butler & Private Calendar:** Tap **Call Butler** in the header to discuss upcoming events (e.g., guests, hosting, travel, or late bedtimes). Click **Done** to save Butler's notes to `calendar.hvac_butler_notes` (and re-evaluate immediately if active today/tonight), or **Cancel** to discard.
 
-![Call Butler Briefing Dialog](docs/images/hvac_butler_call_modal.png)
+<img src="docs/images/hvac_butler_call_modal.png" alt="Call Butler Briefing Dialog" width="495">
 
-![HVAC Butler Private Calendar](docs/images/hvac_butler_calendar.png)
+<img src="docs/images/hvac_butler_calendar.png" alt="HVAC Butler Private Calendar" width="480">
 
 ## Installation
 
