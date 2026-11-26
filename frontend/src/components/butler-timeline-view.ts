@@ -372,9 +372,14 @@ export class ButlerTimelineView extends LitElement {
         : null;
     const latestPlan =
       spaceEntries.find((e) => e.kind === 'plan') ?? fallbackPlan;
+    const isPlanAlreadyTop =
+      Boolean(latestPlan) &&
+      items[0]?.type === 'entry' &&
+      items[0].entry.id === latestPlan?.id;
+    const showPinnedPlan = Boolean(latestPlan) && !isPlanAlreadyTop;
 
     let pinnedPlanText = '';
-    if (latestPlan) {
+    if (showPinnedPlan && latestPlan) {
       const rec = isAll ? undefined : latestPlan.spaces?.[this.selectedSpaceId];
       pinnedPlanText = !isAll
         ? rec?.summary || latestPlan.headline || 'Plan updated.'
@@ -382,7 +387,7 @@ export class ButlerTimelineView extends LitElement {
     }
 
     return html`
-      ${latestPlan
+      ${showPinnedPlan && latestPlan
         ? html`
             <div
               class="pinned-plan"

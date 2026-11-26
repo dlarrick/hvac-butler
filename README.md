@@ -83,6 +83,6 @@ HVAC Butler works standalone with any Home Assistant climate entity, and pairs s
 
 - **Deterministic Non-AI Heuristic Fallback:** Graceful local degradation during extended cloud LLM outages or rate limits.
 - **Proactive External Calendar Clarification:** Scan household `calendar.*` entities and ask concise clarifying questions when an event is ambiguous (*"Maui trip — housesitter? Dogs home or boarded?"* or *"Wednesday Sync — Zoom from Home Office, or away?"*), saving answers as reusable rules.
-- **Transparent Habit & Proximity Learning:** Surface learned occupancy routines and override patterns as plain-English, inspectable notes alongside your schedule, and anticipate arrivals via proximity zones.
+- **Transparent Habit & Proximity Learning:** Show learned occupancy routines and override patterns as plain-English, editable notes alongside your schedule, and anticipate arrivals via proximity zones.
 - **Cooling-Season Comfort & Passive-Cooling Advisories:** Factor in interior humidity/dewpoint and suggest free overnight cooling (*"Tonight is a great night to air out the house"*).
 - **Empirical Thermal Awareness & Envelope Calibration:** Learn per-space coast-down and recovery behavior from Home Assistant history to scale setbacks with weather severity and propose `hvac-fusion` calibration refinements.
