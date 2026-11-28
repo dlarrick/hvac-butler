@@ -19,3 +19,6 @@ build/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Local planning symlinks
+ROADMAP.md

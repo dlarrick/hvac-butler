@@ -102,6 +102,7 @@ export interface JournalEntry {
   timestamp: string;
   kind: 'plan' | 'intraday';
   status: 'ok' | 'fallback' | 'error' | string;
+  heuristic?: boolean;
   trigger: JournalTrigger;
   target_days?: string[];
   weather_snapshot?: WeatherSnapshot | null;

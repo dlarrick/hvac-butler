@@ -111,6 +111,15 @@ export class ButlerDetailModal extends LitElement {
       font-size: 0.85rem;
     }
 
+    .heuristic-banner {
+      background: rgba(255, 152, 0, 0.14);
+      border: 1px solid rgba(255, 152, 0, 0.35);
+      color: #ffb74d;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+    }
+
     .section-label {
       font-size: 0.72rem;
       font-weight: 600;
@@ -445,6 +454,14 @@ export class ButlerDetailModal extends LitElement {
             ${entry.status === 'error'
               ? html`<span class="badge badge-error">Error</span>`
               : nothing}
+            ${entry.heuristic
+              ? html`<span
+                  class="badge badge-fallback"
+                  title="AI unavailable — ran in basic non-AI mode"
+                >
+                  Basic
+                </span>`
+              : nothing}
             <span class="timestamp">${formatFullTimestamp(entry.timestamp)}</span>
           </div>
           <button
@@ -463,9 +480,15 @@ export class ButlerDetailModal extends LitElement {
             ${weatherLine ? html`<div>${weatherLine}</div>` : nothing}
           </div>
 
-          ${entry.error
-            ? html`<div class="error-banner">${entry.error}</div>`
-            : nothing}
+          ${entry.heuristic
+            ? html`<div class="heuristic-banner">
+                AI unavailable — ran in basic mode${entry.error
+                  ? `: ${entry.error}`
+                  : '.'}
+              </div>`
+            : entry.error
+              ? html`<div class="error-banner">${entry.error}</div>`
+              : nothing}
 
           ${selectedRec
             ? html`

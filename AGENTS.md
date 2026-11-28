@@ -12,6 +12,10 @@ Start by reading [`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md) for repository l
 - **Virtual Entity Polling Invariant:** All sensor/button entities must declare `_attr_should_poll = False`.
 - **Translation Synchronization Invariant:** `strings.json` and `translations/en.json` must remain 100% identical at all times.
 
+## Prompt Engineering Philosophy
+- **Goals Over Prescriptions:** Lead prompts with clear goals and priority order; let the model reason over `Context` instead of prescribing scenario trees, numeric weather thresholds, or truth tables.
+- **Domain Meaning Over Enumeration:** Do not enumerate self-describing JSON inputs, subfields, or trigger types in prose. Document only non-obvious *domain meaning* (authority/priority, gotchas, blind spots, physical/system mechanics) and strict output/guardrail contracts.
+
 ## Bug Handling Workflow
 When presented with a bug:
 1. **Diagnose** root cause.

@@ -32,6 +32,7 @@ hvac-butler/
 │       ├── coordinator.py              # Nightly 21:00 macro-planner & event-driven intraday coordinator
 │       ├── frontend_loader.py          # Content-hashed auto-registration for hvac-butler-cards.js
 │       ├── guardrails.py               # Deterministic 'Trust, but Verify' validator & clamping
+│       ├── heuristics.py               # Pure-Python deterministic non-AI fallback planners
 │       ├── journal.py                  # HA Store-backed 7-day versioned rolling activity journal
 │       ├── manifest.json               # Home Assistant integration manifest
 │       ├── prompts.py                  # Pure-Python prompt & compact context builders
@@ -64,6 +65,7 @@ hvac-butler/
     ├── test_config_flow.py             # Onboarding, hvac_fusion pre-population, 2-menu Options Flow tests
     ├── test_coordinator.py             # End-to-end nightly plan, native schedule write, intraday & shadow-mode tests
     ├── test_guardrails.py              # Directed deadband, hard bounds, mode coercion, delta clamp, fallback tests
+    ├── test_heuristics.py              # Deterministic non-AI heuristic fallback & LLM outage degradation tests
     ├── test_journal.py                 # Journal persistence, pruning, schema versioning, and WebSocket API tests
     ├── test_prompts.py                 # Forecast condensation, nightly/intraday prompt tests
     └── test_schedule_utils.py          # Time parsing, slicing, merging, 7-day payload tests

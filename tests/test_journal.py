@@ -206,6 +206,9 @@ async def test_journal_keyframed_short_term_memory_and_cap_fallback(
             "timestamp": (now - timedelta(hours=6)).isoformat(),
             "kind": "plan",
             "trigger": {"type": "scheduled_plan", "label": "Plan"},
+            "weather_snapshot": {
+                "current": {"temperature": 32.0, "condition": "rainy"}
+            },
             "spaces": {
                 "first_floor": {"changed": False, "summary": "Today plan"},
                 "loft": {"changed": False, "summary": "Today plan"},
@@ -236,8 +239,10 @@ async def test_journal_keyframed_short_term_memory_and_cap_fallback(
     )
     assert len(mem) == 3
     assert mem[0]["kind"] == "plan"
+    assert mem[0]["weather_snapshot"]["current"]["condition"] == "rainy"
     assert mem[0]["spaces"]["first_floor"]["summary"] == "Today plan"
     assert "loft" in mem[1]["spaces"]
+    assert "weather_snapshot" not in mem[1]
     assert "first_floor" in mem[2]["spaces"]
 
     # Over cap (max_entries=2): falls back to filtering to target_space_ids + Plan keyframe

@@ -166,3 +166,82 @@ def test_supported_hvac_modes_coercion_for_heat_only_entity() -> None:
     assert res.blocks[0].heat_to == 69.0
     assert res.blocks[0].cool_to is None
     assert res.warnings is not None
+
+
+def test_space_envelope_allows_boundary_shifts_and_mode_switches() -> None:
+    """Shifting block boundaries or switching occupied/unoccupied is not falsely clamped."""
+    occ_day = [
+        ScheduleBlock(0, 420, "heat_cool", 60.0, 76.0),
+        ScheduleBlock(420, 1320, "heat_cool", 68.0, 74.0),
+        ScheduleBlock(1320, 1440, "heat_cool", 60.0, 76.0),
+    ]
+    unocc_day = [ScheduleBlock(0, 1440, "heat_cool", 58.0, 82.0)]
+    cfg = GuardrailConfig(max_ai_delta_f=4.0)
+
+    # 1. Late-evening intraday extension (21:30-23:30 at 68°F) even though 22:00-24:00 is 60°F
+    late_ext = [
+        {
+            "from": "21:30:00",
+            "to": "23:30:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 68.0, "cool_to": 74.0},
+        },
+        {
+            "from": "23:30:00",
+            "to": "24:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 60.0, "cool_to": 76.0},
+        },
+    ]
+    res_ext = validate_and_clamp_blocks(
+        late_ext,
+        occ_day,
+        1290,
+        1440,
+        cfg,
+        outdoor_temp_f=30.0,
+        reference_blocks=[*occ_day, *unocc_day],
+    )
+    assert res_ext.used_fallback is False
+    assert res_ext.warnings is None
+    assert res_ext.blocks[0].heat_to == 68.0
+
+    # 2. Guest room (default_mode: unoccupied, 58°F) switched to occupied (68°F) via day_notes
+    guest_occ = [
+        {
+            "from": "00:00:00",
+            "to": "24:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 68.0, "cool_to": 74.0},
+        }
+    ]
+    res_guest = validate_and_clamp_blocks(
+        guest_occ,
+        unocc_day,
+        0,
+        1440,
+        cfg,
+        outdoor_temp_f=30.0,
+        reference_blocks=[*occ_day, *unocc_day],
+    )
+    assert res_guest.used_fallback is False
+    assert res_guest.warnings is None
+    assert res_guest.blocks[0].heat_to == 68.0
+
+    # 3. Still clamps runaway proposals beyond envelope +/- max_ai_delta_f (max heat 68 + 4 = 72)
+    runaway = [
+        {
+            "from": "00:00:00",
+            "to": "24:00:00",
+            "data": {"hvac_mode": "heat_cool", "heat_to": 78.0, "cool_to": 82.0},
+        }
+    ]
+    res_runaway = validate_and_clamp_blocks(
+        runaway,
+        occ_day,
+        0,
+        1440,
+        cfg,
+        outdoor_temp_f=30.0,
+        reference_blocks=[*occ_day, *unocc_day],
+    )
+    assert res_runaway.used_fallback is False
+    assert res_runaway.blocks[0].heat_to == 72.0
+    assert res_runaway.warnings is not None

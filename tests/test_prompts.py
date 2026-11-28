@@ -88,7 +88,7 @@ def test_build_nightly_prompt_with_and_without_day_notes() -> None:
     assert '"day_notes"' not in prompt
     assert "3-story Victorian" in prompt
     assert "South-facing windows, woodstove" in prompt
-    assert 'and `unoccupied_schedule` when `default_mode` is `"unoccupied"`' in prompt
+    assert "`default_mode` selects each space's active baseline" in prompt
 
     # Future day-specific instructions slot activates cleanly when populated
     ctx.day_notes = ["Guests arriving at 5 PM tomorrow"]
@@ -149,8 +149,10 @@ def test_build_intraday_prompt() -> None:
     assert '"for_minutes": 4' in prompt
     assert '"recent_events"' in prompt
     assert "mmWave presence sensor is very accurate" in prompt
-    assert "armed_away" in prompt and "manual_intraday" in prompt
-    assert "Home Assistant restart" in prompt
-    assert "bedtime setbacks" in prompt
-    assert "unnecessary overshoot" in prompt
+    assert "Respect the Plan's Intent" in prompt
+    assert "Adapt When Reality Diverges (Following the Plan's Guidance)" in prompt
+    assert "actual weather diverge meaningfully" in prompt
+    assert "trigger_event" in prompt
+    assert "max_ai_delta_f" in prompt
     assert "setback recovery" in prompt
+    assert "overshoot" in prompt

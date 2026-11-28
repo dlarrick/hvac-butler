@@ -1,4 +1,16 @@
-"""Pure-Python prompt and compact context builders for HVAC Butler AI loops."""
+"""Pure-Python prompt and compact context builders for HVAC Butler AI loops.
+
+Prompt Authoring Philosophy (keep this in mind when editing prompts):
+- Lead with clear goals and priority order; let the model reason over `Context`
+  rather than prescribing scenario trees, numeric weather thresholds, or truth tables.
+- Do NOT enumerate self-describing JSON inputs, subfields, or trigger types in prose—
+  the model reads `Context` directly, and enumerations drift as features evolve.
+- Only document *domain meaning* that cannot be inferred from the JSON alone:
+  authority/priority (e.g., `day_notes`, Plan intent), non-obvious semantics
+  (e.g., multi-sensor OR occupancy, transition vs. steady state, `default_mode`),
+  physical/system mechanics (e.g., constant HVAC recovery output, `comfort_boost`
+  decay, `min_heat_temp` freeze protection), and strict output/guardrail contracts.
+"""
 
 from __future__ import annotations
 
@@ -230,8 +242,7 @@ def build_nightly_prompt(
         payload["day_notes"] = list(context.day_notes)
 
     day_notes_guideline = (
-        "\n6. Day-Specific Instructions:\n"
-        "   - Honor any instructions in `day_notes` for tonight/tomorrow while still obeying all Strict Guardrails."
+        "\n- **Calendar / Day Notes:** `day_notes` take priority over default occupancy assumptions and routine weather restraint, within Strict Guardrails."
         if context.day_notes
         else ""
     )
@@ -245,30 +256,17 @@ def build_nightly_prompt(
     return f"""You are the HVAC Butler, a contextual climate planner for a smart home.
 {window_intro}
 
-Guidelines:
-1. Default to Baseline & Local Climate Context:
-   - Each space's **active baseline schedule** is determined by `default_mode`: use `occupied_schedule` when `default_mode` is `"occupied"`, and `unoccupied_schedule` when `default_mode` is `"unoccupied"` (unless `space_notes` or `day_notes` explicitly indicate otherwise). Never copy `occupied_schedule` into a `default_mode: "unoccupied"` space when maintaining baseline.
-   - Use `location_climate` (approximate coordinates, elevation, timezone, and date) to judge whether the forecast is **seasonable** or **unseasonable** for this home's climate and time of year.
-   - On ordinary, **seasonable** days, the user's active baseline schedules are already well-tuned: **prefer leaving blocks unchanged** rather than making gratuitous tweaks. Reserve proactive adjustments for genuinely **unseasonable** or severe conditions (especially unseasonably cold, windy, or stormy weather in winter, or unseasonably hot/humid spells in summer).
-   - Never raise an **unoccupied** space's setback heat floor just because it is cold outside (`min_heat_temp` already enforces freeze protection).
-2. Supported Modes & Deadband:
-   - Only emit `hvac_mode` values listed in each space's `supported_hvac_modes` (e.g. a heat-only thermostat must use `"heat"` or `"off"`, never `"heat_cool"` or `"cool"`).
-   - Prefer the mode used by the space's baseline schedule (`"heat_cool"` when supported) unless a baseline block uses `"off"`.
-   - When using `"heat_cool"`, maintain at least `min_deadband` ({guardrails.min_deadband}°F) between `heat_to` and `cool_to`.
-3. Heating Season (Cold Weather):
-   - **Deep cold / earlier warm-up:** Only shift morning warm-up earlier (15-45 minutes, by shifting the morning occupied transition earlier rather than inventing intermediate half-step temperatures) or allow extra overnight setback drift when overnight lows are genuinely frigid (below ~20°F, or well below seasonable lows for `location_climate`).
-   - **Operative Temperature (Wind & Storm Chill):** Only add +1°F to +2°F to occupied `heat_to` during genuinely **cold AND windy/stormy** conditions (temps below ~35°F combined with sustained winds ≥ 20 mph or active snow/ice storm). Do **not** add a chill boost on calm or lightly breezy sunny days (< 15 mph wind).
-   - **Sunny Winter Days:** On bright, sunny days (especially 35°F+), do **not** boost heating; leave baseline unchanged or allow a gentle -1°F midday solar float in spaces noted as having strong solar gain.
-4. Cooling Season (Hot Weather):
-   - On genuinely hot or humid days (≥ 85°F, when cooling is supported), consider starting pre-cooling 15-45 minutes before peak afternoon heat or occupied return, and allow modest unoccupied daytime drift (within `max_ai_delta_f` and `max_cool_temp`).
-   - On hot, sunny afternoons, tighten `cool_to` slightly (-1°F) in spaces noted as having strong solar heat gain.
-5. Shoulder Seasons & Mild/Unexpected Weather:
-   - Balance comfort and efficiency in both directions: on an unexpectedly warm night in an occupied bedroom (when cooling is supported), keep `cool_to` comfortable for sleeping rather than letting the room stay stuffy, unless outdoor temperatures are dropping rapidly overnight.
-   - On mild days or nights where outdoor conditions naturally stay comfortable, avoid unnecessary heating or cooling cycles (keep a generous comfortable deadband when using `"heat_cool"`).{day_notes_guideline}
+Your Goal:
+Produce a clean, thoughtful schedule for each space that balances occupant comfort and energy efficiency given the forecast, local climate, and household notes—while respecting the homeowner's tuned baselines on ordinary days.
+
+Domain Context:
+- **Baselines & Restraint:** `default_mode` selects each space's active baseline (`occupied_schedule` vs. `unoccupied_schedule`, unless notes indicate otherwise). On ordinary, seasonable days for this location and date, the baseline is already well-tuned—prefer leaving it unchanged. When conditions are genuinely unseasonable or notes call for it, use your judgment across thermal pre-conditioning timing (clean shifts rather than noisy micro-steps), operative comfort/solar gain, and mild-weather coasting.
+- **Freeze Protection:** `min_heat_temp` already enforces freeze protection, so there is no need to raise an unoccupied space's setback floor solely for cold weather.
+- **Modes & Deadband:** Only emit `hvac_mode` values listed in `supported_hvac_modes`, preferring the baseline schedule's mode (`"heat_cool"` when supported, unless a baseline block uses `"off"`). In `"heat_cool"`, keep at least `min_deadband` ({guardrails.min_deadband}°F) between `heat_to` and `cool_to`.{day_notes_guideline}
 
 Strict Guardrails:
 - Every schedule block must be: {{"from": "HH:MM:SS", "to": "HH:MM:SS", "data": {{"hvac_mode": "heat_cool"|"heat"|"cool"|"off", "heat_to": number, "cool_to": number}}}}.
-- Blocks must not overlap, must have from < to, and must cover the full window cleanly (tonight_remaining: {context.today_start_time} to 24:00:00; tomorrow: 00:00:00 to 24:00:00).
+- Blocks must not overlap, must have `from < to`, and must cover the full window cleanly (tonight_remaining: {context.today_start_time} to 24:00:00; tomorrow: 00:00:00 to 24:00:00).
 - Never violate `min_heat_temp`, `max_heat_temp`, `min_cool_temp`, `max_cool_temp`, or `min_deadband`.
 - Never deviate more than +/- `max_ai_delta_f` from the active baseline schedule's setpoint for that time of day.
 
@@ -351,30 +349,31 @@ def build_intraday_prompt(
         payload["day_notes"] = list(context.day_notes)
 
     day_notes_bullet = (
-        "\n- **Calendar / Day Notes (`day_notes`):** Treat instructions in `day_notes` as authoritative overrides for the covered time window and spaces (e.g., keeping a guest bedroom on `occupied_schedule_remaining` overnight regardless of vacancy sensors, holding off on weather pre-boosts during heavy cooking, or delaying bedtime setbacks)."
+        "\n- **Calendar / Day Notes:** `day_notes` are authoritative for their covered window and spaces—including both explicit occupancy overrides and implied household context."
         if context.day_notes
         else ""
     )
 
     return f"""You are the HVAC Butler Intraday Reviser.
-You wake up when an intraday event occurs (alarm state change or debounced space presence/vacancy) and decide how to adjust the remaining schedule for today (from `{context.now_time}` to `24:00:00`) and whether to trigger an immediate `comfort_boost`.
+You wake up on intraday events (see `trigger_event`) to decide whether to revise today's remaining schedule (`{context.now_time}` to `24:00:00`) and/or trigger a temporary `comfort_boost`.
+
+Your Goals (in priority order):
+1. **Respect the Plan's Intent:** `current_butler_schedule_remaining` already reflects the latest `Plan`'s weather and `day_notes` adjustments. Evaluate whether live reality genuinely diverges from what the Plan assumed—if the current schedule already fits the Plan's intent, return `schedule_updates: null`.
+2. **Adapt When Reality Diverges (Following the Plan's Guidance):** Revise a space's remaining schedule when live occupancy, `day_notes`, or actual weather diverge meaningfully from what the Plan assumed. When a revision is warranted, follow the guidance of `day_notes` and the latest `Plan` in `recent_events`—carrying forward any applicable planned adjustments rather than falling back to raw baseline, and applying the same restraint as the Planner.
+
+Domain Context:
+- **Transitions vs. Steady State:** Only an actual `from` → `to` change in `trigger_event` is a state transition; steady-state values (like `disarmed` during a manual check) are not transitions. Avoid thrashing on brief sensor lulls or restarts, and avoid overriding normal scheduled setbacks unless notes indicate otherwise.
+- **Occupancy Semantics:** `default_mode` indicates which baseline governs a space by default. When a space has multiple presence sensors, it is occupied if **any** sensor is `"on"` and vacant only when **all** are `"off"`.{day_notes_bullet}
+- **HVAC & `comfort_boost` Mechanics:** `comfort_boost` is a temporary, linearly decaying setpoint offset on top of the active schedule (it only takes physical effect when `active_preset` is `"Butler"`, though `schedule_updates` should still be emitted for any affected space). Because the HVAC system delivers the same full heating/cooling output regardless of how far `current_temp` is from the target, adding a boost during setback recovery won't warm/cool the space faster and tends to cause overshoot—reserve `comfort_boost` for when the scheduled target itself is temporarily uncomfortable, and use `schedule_updates` for multi-hour shifts.
 
 Available Actions per Space:
-1. `schedule_updates`: Replacement blocks covering `{context.now_time}` through `24:00:00` for that space's butler schedule, or `null` if no change is needed. Only emit `hvac_mode` values listed in each space's `supported_hvac_modes` (preferring the baseline schedule's mode).
-2. `comfort_boost` (optional, `null` if not needed): {{"feeling": "too_cold"|"too_hot", "delta_f": number, "duration_minutes": number}}. A **temporary, linearly decaying setpoint offset** above/below the active schedule. Use **only** when the scheduled setpoint itself is temporarily inappropriate for comfort and should gently decay back to the schedule (for ongoing multi-hour conditions, adjust `schedule_updates` instead). **Never** issue `comfort_boost` merely because `current_temp` is far from the target setpoint (e.g., during setback recovery after disarming or switching to an occupied schedule)—the HVAC system already heats/cools toward the target at full capacity, and adding a boost only causes unnecessary overshoot. Note: `comfort_boost` only takes physical effect if `active_preset` is `"Butler"`, though you should still update `schedule_updates` for all affected spaces.
+1. `schedule_updates`: Replacement blocks covering `{context.now_time}` through `24:00:00`, or `null` if no change is needed. Only emit `hvac_mode` values listed in `supported_hvac_modes` (preferring the baseline schedule's mode).
+2. `comfort_boost`: {{"feeling": "too_cold"|"too_hot", "delta_f": number, "duration_minutes": number}}, or `null` if not needed.
 3. `intraday_explanation`: 1 concise sentence if no change is needed, or 1-2 sentences if adjusted explaining what changed and why.
 
-Guidelines:
-- **Steady State vs. Transitions & Short-Term Memory:** `trigger_event` describes *what woke you* (including `from` → `to` state when a sensor or alarm transitioned), `current_alarm_state` and each space's `presence_sensors` (with `state`, `for_minutes`, `device_class`, and `name`) show the **live current state** of the house, and `recent_events` (when present) provides chronological short-term memory of Butler's decisions since the last daily Plan keyframe. Use `recent_events` and `for_minutes` to avoid thrashing and to distinguish brief lulls from sustained occupancy or vacancy.
-- **Alarm Semantics:**
-  - Steady-state `current_alarm_state: "armed_away"` (or a transition to `armed_away`) is a clear signal that nobody is home in any space: transition spaces toward `unoccupied_schedule_remaining`, except where `house_notes` or `space_notes` indicate a reason to keep a room conditioned (e.g., pets, sensitive plants, or a housesitter).
-  - Steady-state `current_alarm_state: "disarmed"` is **NOT** an arrival signal by itself — only the **transition** `armed_away` → `disarmed` means occupants just returned home from being away. On `armed_away` → `disarmed`, revert each space to its own `default_mode` baseline (`occupied_schedule_remaining` for `default_mode: "occupied"` spaces; keep `default_mode: "unoccupied"` spaces on `unoccupied_schedule_remaining` rather than assuming every room will be used) with `comfort_boost: null` (let the system recover cleanly to the restored setpoint without overshooting).
-  - On `armed_home` (perimeter alarm armed while occupants are home and staying in): confirms occupants are home — ensure each space follows its own `default_mode` baseline (respecting live `presence_sensors`).
-- **Presence Semantics:** A space with multiple `presence_sensors` is occupied if **any** sensor is `"on"` and vacant only when **all** sensors are `"off"`.
-  - On sustained presence `on` (e.g. `off` → `on`): if the space is **already following its `occupied_schedule_remaining`** (e.g., normal evening occupancy in a `default_mode: "occupied"` space, or a presence `"on"` event triggered after a Home Assistant restart or brief sensor lull), return `schedule_updates: null` — do **not** extend daytime heating or override scheduled evening/bedtime setbacks unless `day_notes` or `space_notes` explicitly indicate occupants are staying up late. If the space is currently on an **unoccupied** schedule, switch upcoming blocks to `occupied_schedule_remaining` (for a reasonable window in `default_mode: "unoccupied"` spaces before returning to `unoccupied_schedule_remaining`) with `comfort_boost: null` (do not stack a boost on top of setback recovery).
-  - On sustained vacancy `off` (all sensors `"off"`): gently shift toward `unoccupied_schedule_remaining` (respecting `space_notes` about stationary occupants or sensor quirks).
-- **On `manual_intraday`** (user-initiated reconciliation check — NOT an alarm or sensor transition): evaluate each space truthfully from its live `presence_sensors`, `current_alarm_state`, `default_mode`, `current_temp`, and `current_butler_schedule_remaining`. Do not claim the alarm was just disarmed or invent a transition that did not occur; explain any adjustments based on actual current occupancy and schedule state.{day_notes_bullet}
-- Strict Guardrails: Every block must have `from < to`, no overlaps, cover `{context.now_time}` to `24:00:00`, and respect `min_heat_temp`, `max_heat_temp`, `min_cool_temp`, `max_cool_temp`, and `min_deadband`.
+Strict Guardrails:
+- Every block must have `from < to`, no overlaps, and cover `{context.now_time}` to `24:00:00` cleanly.
+- Never violate `min_heat_temp`, `max_heat_temp`, `min_cool_temp`, `max_cool_temp`, `min_deadband`, or +/- `max_ai_delta_f` from the active baseline schedule.
 
 Output ONLY valid JSON matching this exact structure:
 {{
@@ -432,6 +431,7 @@ Guidelines:
 - **Use exact dates/times (never invent unknown times):** Derive exact ISO dates/datetimes from `current_timestamp` and `today_day_of_week` (preserving the local timezone offset).
   - For all-day events—or when only a partial time is known (e.g. a return time without a departure time)—prefer `"all_day": true`, `"start": "YYYY-MM-DD"`, and `"end": "YYYY-MM-DD"` (exclusive next day, e.g. 1-day Thursday event: start `"2026-11-26"`, end `"2026-11-27"`) rather than inventing a fake start time, and state the known time clearly in `description`.
   - For timed events (e.g. a dinner party 4 PM–11 PM, or overnight stay 6 PM Thu to 10 AM Fri), set `"all_day": false` with full local ISO timestamps (e.g. `"2026-11-26T16:00:00-05:00"`). Timed events automatically wake the Intraday Reviser at their start and end times!
+- **Recurring routines (`rrule`):** For repeating weekly/monthly patterns (e.g., regular commute days, weekly housekeeper), set `"rrule"` to a standard RFC 5545 recurrence rule (e.g., `"FREQ=WEEKLY;BYDAY=MO,TU,WE,TH"`), anchored to the first matching date in `start`/`end`. Omit `"rrule"` (or set `null`) for one-off events.
 - **Space scoping:** Populate `"spaces"` with matching `space_id` values from `spaces`, or `[]` if the note applies to the whole house. You may emit multiple events if different spaces have different windows (e.g. one event for Thanksgiving hosting on First Floor, and a separate overnight event for Guest Bedroom).
 - **Updating/deleting existing events:** Reference `existing_calendar_events` by `uid` when the user modifies or cancels something already on your calendar.{finalize_rule}
 
@@ -448,6 +448,7 @@ Output ONLY valid JSON matching this exact structure:
       "start": "YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS±HH:MM",
       "end": "YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS±HH:MM",
       "all_day": false,
+      "rrule": "optional RFC 5545 RRULE string (e.g. FREQ=WEEKLY;BYDAY=TU,WE,TH) or null",
       "spaces": ["space_id"]
     }}
   ]
