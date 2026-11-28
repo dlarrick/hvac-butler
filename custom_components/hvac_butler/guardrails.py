@@ -94,6 +94,34 @@ def _coerce_supported_mode(
     return mode
 
 
+def _compute_setpoint_envelope(
+    reference_blocks: list[ScheduleBlock],
+    max_ai_delta_f: float,
+) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
+    """Compute allowed (heat_bounds, cool_bounds) from all configured setpoints ± delta."""
+    heat_vals = [
+        b.heat_to
+        for b in reference_blocks
+        if b.hvac_mode != "off" and b.heat_to is not None
+    ]
+    cool_vals = [
+        b.cool_to
+        for b in reference_blocks
+        if b.hvac_mode != "off" and b.cool_to is not None
+    ]
+    heat_bounds = (
+        (min(heat_vals) - max_ai_delta_f, max(heat_vals) + max_ai_delta_f)
+        if heat_vals
+        else None
+    )
+    cool_bounds = (
+        (min(cool_vals) - max_ai_delta_f, max(cool_vals) + max_ai_delta_f)
+        if cool_vals
+        else None
+    )
+    return heat_bounds, cool_bounds
+
+
 def _enforce_block_bounds(
     block: ScheduleBlock,
     baseline_ref: ScheduleBlock | None,
@@ -101,8 +129,10 @@ def _enforce_block_bounds(
     outdoor_temp_f: float | None,
     warnings: list[str],
     supported_hvac_modes: set[str] | None = None,
+    heat_envelope: tuple[float, float] | None = None,
+    cool_envelope: tuple[float, float] | None = None,
 ) -> ScheduleBlock:
-    """Clamp delta vs baseline, enforce hard bounds, and apply directed deadband."""
+    """Clamp delta vs space schedule envelope, enforce hard bounds, and apply directed deadband."""
     mode = _coerce_supported_mode(
         block.hvac_mode, baseline_ref, supported_hvac_modes, outdoor_temp_f, warnings
     )
@@ -138,30 +168,21 @@ def _enforce_block_bounds(
     elif mode == "cool":
         heat = None
 
-    # 1. Clamp deviation vs active baseline within +/- max_ai_delta_f
-    if baseline_ref is not None:
-        if heat is not None and baseline_ref.heat_to is not None:
-            clamped_h = _clamp(
-                heat,
-                baseline_ref.heat_to - config.max_ai_delta_f,
-                baseline_ref.heat_to + config.max_ai_delta_f,
+    # 1. Clamp deviation vs space's configured schedule envelope within +/- max_ai_delta_f
+    if heat is not None and heat_envelope is not None:
+        clamped_h = _clamp(heat, heat_envelope[0], heat_envelope[1])
+        if clamped_h != heat:
+            warnings.append(
+                f"Clamped heat_to {heat:.1f} -> {clamped_h:.1f} (delta limit ±{config.max_ai_delta_f:.1f})"
             )
-            if clamped_h != heat:
-                warnings.append(
-                    f"Clamped heat_to {heat:.1f} -> {clamped_h:.1f} (delta limit ±{config.max_ai_delta_f:.1f})"
-                )
-                heat = clamped_h
-        if cool is not None and baseline_ref.cool_to is not None:
-            clamped_c = _clamp(
-                cool,
-                baseline_ref.cool_to - config.max_ai_delta_f,
-                baseline_ref.cool_to + config.max_ai_delta_f,
+            heat = clamped_h
+    if cool is not None and cool_envelope is not None:
+        clamped_c = _clamp(cool, cool_envelope[0], cool_envelope[1])
+        if clamped_c != cool:
+            warnings.append(
+                f"Clamped cool_to {cool:.1f} -> {clamped_c:.1f} (delta limit ±{config.max_ai_delta_f:.1f})"
             )
-            if clamped_c != cool:
-                warnings.append(
-                    f"Clamped cool_to {cool:.1f} -> {clamped_c:.1f} (delta limit ±{config.max_ai_delta_f:.1f})"
-                )
-                cool = clamped_c
+            cool = clamped_c
 
     # 2. Clamp to hard safety bounds
     if heat is not None:
@@ -217,6 +238,7 @@ def validate_and_clamp_blocks(
     config: GuardrailConfig,
     outdoor_temp_f: float | None = None,
     supported_hvac_modes: set[str] | None = None,
+    reference_blocks: list[ScheduleBlock] | None = None,
 ) -> ValidationResult:
     """Validate AI-proposed schedule blocks; fall back cleanly to baseline on structural error."""
     baseline_window = slice_blocks_to_window(
@@ -274,13 +296,27 @@ def validate_and_clamp_blocks(
                 ),
             )
 
+    envelope_source = (
+        reference_blocks if reference_blocks is not None else baseline_blocks
+    )
+    heat_envelope, cool_envelope = _compute_setpoint_envelope(
+        envelope_source, config.max_ai_delta_f
+    )
+
     warnings: list[str] = []
     clamped: list[ScheduleBlock] = []
     for blk in parsed:
         ref = _find_baseline_reference(blk, baseline_window)
         clamped.append(
             _enforce_block_bounds(
-                blk, ref, config, outdoor_temp_f, warnings, supported_hvac_modes
+                blk,
+                ref,
+                config,
+                outdoor_temp_f,
+                warnings,
+                supported_hvac_modes,
+                heat_envelope=heat_envelope,
+                cool_envelope=cool_envelope,
             )
         )
 

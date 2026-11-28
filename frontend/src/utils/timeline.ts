@@ -22,7 +22,9 @@ export function isCollapsibleUnchanged(
   spaceId: string
 ): boolean {
   if (entry.kind === 'plan') return false;
-  if (entry.status === 'error' || entry.status === 'fallback') return false;
+  if (entry.status === 'error' || entry.status === 'fallback' || entry.heuristic) {
+    return false;
+  }
   if (spaceId === ALL_SPACES_ID) {
     const records = Object.values(entry.spaces || {});
     if (records.length === 0) return true;

@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
+from dateutil.rrule import rrulestr
 from homeassistant.components.calendar import CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -24,7 +25,7 @@ CALENDAR_RETENTION_DAYS = 7
 
 @dataclass(slots=True)
 class ButlerCalendarEvent:
-    """Persisted Butler calendar note representing an upcoming or active event."""
+    """Persisted Butler calendar note representing an upcoming or recurring event."""
 
     uid: str
     summary: str
@@ -34,6 +35,8 @@ class ButlerCalendarEvent:
     all_day: bool = False
     spaces: list[str] = field(default_factory=list)
     created_at: str = ""
+    rrule: str | None = None
+    exdates: list[str] = field(default_factory=list)
 
     def start_dt(self) -> datetime:
         """Return timezone-aware local start datetime for range comparisons."""
@@ -63,6 +66,89 @@ class ButlerCalendarEvent:
             return parsed.replace(tzinfo=tz)
         return dt_util.as_local(parsed)
 
+    def expand_occurrences(
+        self, window_start: datetime, window_end: datetime
+    ) -> list[ButlerCalendarEvent]:
+        """Expand this event (single or recurring) into concrete occurrences overlapping [window_start, window_end)."""
+        w_start = dt_util.as_local(window_start)
+        w_end = dt_util.as_local(window_end)
+        s_dt = self.start_dt()
+        e_dt = self.end_dt()
+
+        if not self.rrule:
+            if e_dt > w_start and s_dt < w_end:
+                return [self]
+            return []
+
+        tz = dt_util.DEFAULT_TIME_ZONE
+        naive_start = s_dt.replace(tzinfo=None)
+        try:
+            rule = rrulestr(self.rrule, dtstart=naive_start)
+        except (ValueError, TypeError):
+            if e_dt > w_start and s_dt < w_end:
+                return [self]
+            return []
+
+        if self.all_day:
+            day_span = max(1, (e_dt.date() - s_dt.date()).days)
+            duration = timedelta(days=day_span)
+        else:
+            duration = max(timedelta(minutes=1), e_dt - s_dt)
+
+        search_start = (w_start - duration).replace(tzinfo=None)
+        search_end = w_end.replace(tzinfo=None)
+        excluded = set(self.exdates)
+        occurrences: list[ButlerCalendarEvent] = []
+
+        for occ_naive in rule.between(search_start, search_end, inc=True):
+            if self.all_day:
+                occ_start_date = occ_naive.date()
+                occ_end_date = occ_start_date + timedelta(days=day_span)
+                occ_start_str = occ_start_date.isoformat()
+                occ_end_str = occ_end_date.isoformat()
+                occ_start_dt = datetime.combine(occ_start_date, time.min, tzinfo=tz)
+                occ_end_dt = datetime.combine(occ_end_date, time.min, tzinfo=tz)
+            else:
+                occ_start_dt = occ_naive.replace(tzinfo=tz)
+                occ_end_dt = occ_start_dt + duration
+                occ_start_str = occ_start_dt.isoformat()
+                occ_end_str = occ_end_dt.isoformat()
+
+            if occ_start_str in excluded or occ_start_str[:10] in excluded:
+                continue
+            if occ_end_dt > w_start and occ_start_dt < w_end:
+                occurrences.append(
+                    ButlerCalendarEvent(
+                        uid=self.uid,
+                        summary=self.summary,
+                        description=self.description,
+                        start=occ_start_str,
+                        end=occ_end_str,
+                        all_day=self.all_day,
+                        spaces=list(self.spaces),
+                        created_at=self.created_at,
+                        rrule=self.rrule,
+                        exdates=list(self.exdates),
+                    )
+                )
+        return occurrences
+
+    def has_occurrence_at_or_after(self, cutoff: datetime) -> bool:
+        """Return True if this event (or any recurrence of it) ends at or after `cutoff`."""
+        cutoff_local = dt_util.as_local(cutoff)
+        s_dt = self.start_dt()
+        e_dt = self.end_dt()
+        if not self.rrule:
+            return e_dt >= cutoff_local
+
+        duration = max(timedelta(minutes=1), e_dt - s_dt)
+        try:
+            rule = rrulestr(self.rrule, dtstart=s_dt.replace(tzinfo=None))
+            nxt = rule.after((cutoff_local - duration).replace(tzinfo=None), inc=True)
+            return nxt is not None
+        except (ValueError, TypeError):
+            return e_dt >= cutoff_local
+
     def to_ha_calendar_event(self) -> CalendarEvent:
         """Convert to Home Assistant's native CalendarEvent object."""
         if self.all_day:
@@ -87,11 +173,13 @@ class ButlerCalendarEvent:
             summary=self.summary,
             description=desc or None,
             uid=self.uid,
+            rrule=self.rrule,
+            recurrence_id=self.start if self.rrule else None,
         )
 
     def to_prompt_dict(self) -> dict[str, Any]:
         """Serialize compactly for briefing prompt context."""
-        return {
+        data: dict[str, Any] = {
             "uid": self.uid,
             "summary": self.summary,
             "description": self.description,
@@ -100,6 +188,9 @@ class ButlerCalendarEvent:
             "all_day": self.all_day,
             "spaces": list(self.spaces),
         }
+        if self.rrule:
+            data["rrule"] = self.rrule
+        return data
 
     def format_day_note(self) -> str:
         """Format into a clear single-string note for the planner's `day_notes` slot."""
@@ -176,6 +267,32 @@ def _normalize_event_times(
     return s_dt.isoformat(), e_dt.isoformat(), False
 
 
+def _normalize_rrule(raw_rrule: Any, start_iso: str, all_day: bool) -> str | None:
+    """Validate and normalize an optional RFC 5545 RRULE string."""
+    if not raw_rrule or not isinstance(raw_rrule, str):
+        return None
+    cleaned = raw_rrule.strip()
+    if cleaned.upper().startswith("RRULE:"):
+        cleaned = cleaned[6:].strip()
+    if not cleaned:
+        return None
+    try:
+        if all_day:
+            dtstart = datetime.combine(date.fromisoformat(start_iso[:10]), time.min)
+        else:
+            parsed = dt_util.parse_datetime(start_iso)
+            dtstart = (
+                parsed.replace(tzinfo=None)
+                if parsed is not None
+                else datetime.combine(date.fromisoformat(start_iso[:10]), time.min)
+            )
+        rrulestr(cleaned, dtstart=dtstart)
+    except (ValueError, TypeError) as err:
+        _LOGGER.warning("Ignoring invalid RRULE %r: %s", raw_rrule, err)
+        return None
+    return cleaned
+
+
 class ButlerCalendarStore:
     """Persisted store for HVAC Butler's private, self-maintained calendar events."""
 
@@ -222,6 +339,14 @@ class ButlerCalendarStore:
                                 if isinstance(s, str) and s
                             ],
                             created_at=str(raw.get("created_at", "")),
+                            rrule=(
+                                str(raw["rrule"]).strip() if raw.get("rrule") else None
+                            ),
+                            exdates=[
+                                str(d)
+                                for d in (raw.get("exdates") or [])
+                                if isinstance(d, str) and d
+                            ],
                         )
                     )
                 except (KeyError, ValueError, TypeError):
@@ -236,7 +361,7 @@ class ButlerCalendarStore:
         kept: list[ButlerCalendarEvent] = []
         for ev in self._events:
             try:
-                if ev.end_dt() >= cutoff:
+                if ev.has_occurrence_at_or_after(cutoff):
                     kept.append(ev)
             except ValueError:
                 continue
@@ -254,28 +379,34 @@ class ButlerCalendarStore:
     def get_events_in_range(
         self, start_dt: datetime, end_dt: datetime
     ) -> list[ButlerCalendarEvent]:
-        """Return events overlapping [start_dt, end_dt)."""
-        start_local = dt_util.as_local(start_dt)
-        end_local = dt_util.as_local(end_dt)
+        """Return concrete event occurrences overlapping [start_dt, end_dt)."""
         result: list[ButlerCalendarEvent] = []
         for ev in self._events:
             try:
-                if ev.end_dt() > start_local and ev.start_dt() < end_local:
-                    result.append(ev)
+                result.extend(ev.expand_occurrences(start_dt, end_dt))
             except ValueError:
                 continue
+        result.sort(key=lambda e: (e.start_dt(), e.summary))
         return result
 
     def get_upcoming_events(
         self, now: datetime, days: int = 30
     ) -> list[ButlerCalendarEvent]:
-        """Return active and upcoming events within the next `days` days."""
-        return self.get_events_in_range(now, now + timedelta(days=days))
+        """Return master events (1 per recurring series) active or upcoming within `days`."""
+        window_end = now + timedelta(days=days)
+        result: list[ButlerCalendarEvent] = []
+        for ev in self._events:
+            try:
+                if ev.expand_occurrences(now, window_end):
+                    result.append(ev)
+            except ValueError:
+                continue
+        return result
 
     def get_current_or_next_event(self, now: datetime) -> ButlerCalendarEvent | None:
-        """Return the currently active event, or the soonest upcoming event."""
+        """Return the currently active occurrence, or the soonest upcoming occurrence."""
         now_local = dt_util.as_local(now)
-        upcoming = [ev for ev in self._events if ev.end_dt() > now_local]
+        upcoming = self.get_events_in_range(now_local, now_local + timedelta(days=366))
         if not upcoming:
             return None
         # Prefer an active event over a future one
@@ -296,7 +427,7 @@ class ButlerCalendarStore:
         """Return the earliest future (timestamp, 'start'|'end', event) for timed events."""
         now_local = dt_util.as_local(now)
         best: tuple[datetime, str, ButlerCalendarEvent] | None = None
-        for ev in self._events:
+        for ev in self.get_events_in_range(now_local, now_local + timedelta(days=366)):
             if ev.all_day:
                 continue
             try:
@@ -309,8 +440,22 @@ class ButlerCalendarStore:
                     best = (ts, phase, ev)
         return best
 
-    async def async_delete_event(self, uid: str) -> bool:
-        """Delete a single calendar event by uid."""
+    async def async_delete_event(
+        self,
+        uid: str,
+        *,
+        recurrence_id: str | None = None,
+        recurrence_range: str | None = None,
+    ) -> bool:
+        """Delete a calendar event (or a single occurrence when recurrence_id is provided)."""
+        if recurrence_id and str(recurrence_range or "").upper() != "THISANDFUTURE":
+            target = next((ev for ev in self._events if ev.uid == uid), None)
+            if target is not None and target.rrule:
+                if recurrence_id not in target.exdates:
+                    target.exdates.append(recurrence_id)
+                    await self._async_save()
+                return True
+
         before = len(self._events)
         self._events = [ev for ev in self._events if ev.uid != uid]
         if len(self._events) == before:
@@ -371,6 +516,8 @@ class ButlerCalendarStore:
                 and (valid_space_ids is None or s.strip() in valid_space_ids)
             ]
 
+            rrule = _normalize_rrule(raw.get("rrule"), start_iso, all_day)
+
             if action == "update":
                 uid = str(raw.get("uid", "")).strip()
                 existing = next((ev for ev in self._events if ev.uid == uid), None)
@@ -381,6 +528,7 @@ class ButlerCalendarStore:
                     existing.end = end_iso
                     existing.all_day = all_day
                     existing.spaces = spaces
+                    existing.rrule = rrule
                     counts["updated"] += 1
                     affected.append(existing)
                     continue
@@ -394,6 +542,7 @@ class ButlerCalendarStore:
                 all_day=all_day,
                 spaces=spaces,
                 created_at=now_dt.isoformat(),
+                rrule=rrule,
             )
             self._events.append(new_ev)
             counts["added"] += 1

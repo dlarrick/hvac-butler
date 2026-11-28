@@ -59,6 +59,10 @@ from .guardrails import (
     validate_and_clamp_blocks,
     validate_comfort_boost,
 )
+from .heuristics import (
+    build_heuristic_intraday_revision,
+    build_heuristic_nightly_plan,
+)
 from .journal import HvacButlerJournal
 from .prompts import (
     IntradayPlanContext,
@@ -373,11 +377,10 @@ class HvacButlerCoordinator:
             )
             tomorrow_end = end_of_today + timedelta(days=1)
             affects_today = any(
-                ev.start_dt() <= end_of_today and ev.end_dt() > now_local
-                for ev in affected
+                bool(ev.expand_occurrences(now_local, end_of_today)) for ev in affected
             )
             affects_tomorrow = any(
-                ev.start_dt() <= tomorrow_end and ev.end_dt() > end_of_today
+                bool(ev.expand_occurrences(end_of_today, tomorrow_end))
                 for ev in affected
             )
             if now_local.hour >= NIGHTLY_PLAN_HOUR and (
@@ -961,6 +964,11 @@ class HvacButlerCoordinator:
                 "is_locked": is_locked,
                 "baseline_tonight": unocc_tonight if use_unocc else occ_tonight,
                 "baseline_tomorrow": unocc_tomorrow if use_unocc else occ_tomorrow,
+                "reference_tonight": [*occ_week[tonight_day], *unocc_week[tonight_day]],
+                "reference_tomorrow": [
+                    *occ_week[tomorrow_day],
+                    *unocc_week[tomorrow_day],
+                ],
             }
 
         if not space_contexts:
@@ -1021,9 +1029,12 @@ class HvacButlerCoordinator:
         except Exception as err:
             ai_failed = True
             self.last_error = str(err).splitlines()[0][:240]
-            _LOGGER.error(
-                "Nightly plan AI task failed, using baseline fallback: %s", err
+            _LOGGER.warning(
+                "Nightly plan AI task failed, using deterministic heuristic fallback: %s",
+                err,
             )
+            ai_json = build_heuristic_nightly_plan(ctx, self.guardrails)
+            ai_spaces = ai_json.get("spaces", {})
 
         any_guardrail_fallback = False
         summaries: dict[str, str] = {}
@@ -1068,6 +1079,7 @@ class HvacButlerCoordinator:
                 guardrails,
                 outdoor_temp_f=outdoor_temp,
                 supported_hvac_modes=meta["modes"],
+                reference_blocks=meta["reference_tonight"],
             )
             tomorrow_res = validate_and_clamp_blocks(
                 ai_entry.get("tomorrow"),
@@ -1077,6 +1089,7 @@ class HvacButlerCoordinator:
                 guardrails,
                 outdoor_temp_f=outdoor_temp,
                 supported_hvac_modes=meta["modes"],
+                reference_blocks=meta["reference_tomorrow"],
             )
             used_fallback = tonight_res.used_fallback or tomorrow_res.used_fallback
             blocks_changed = (
@@ -1161,7 +1174,11 @@ class HvacButlerCoordinator:
 
         total_spaces = len(space_meta)
         if ai_failed:
-            self.daily_plan_headline = f"Fallback to baseline ({total_spaces} spaces)"
+            self.daily_plan_headline = (
+                f"Heuristic fallback ({spaces_modified} of {total_spaces} spaces adjusted)"
+                if spaces_modified
+                else f"Heuristic fallback (all {total_spaces} spaces match baseline)"
+            )
         elif spaces_modified == 0:
             self.daily_plan_headline = f"All {total_spaces} spaces match baseline"
         else:
@@ -1173,14 +1190,13 @@ class HvacButlerCoordinator:
             f"{space_meta[s]['name']}: {txt}" for s, txt in summaries.items()
         )
         self.last_nightly_run = now_local.isoformat()
-        self.status = (
-            "error" if ai_failed else "fallback" if any_guardrail_fallback else "ok"
-        )
+        self.status = "fallback" if (ai_failed or any_guardrail_fallback) else "ok"
         await self.journal.async_append(
             {
                 "timestamp": now_local.isoformat(),
                 "kind": "plan",
                 "status": self.status,
+                "heuristic": bool(ai_failed),
                 "trigger": {
                     "type": "manual_plan" if manual else "scheduled_plan",
                     "label": "Plan",
@@ -1315,6 +1331,7 @@ class HvacButlerCoordinator:
                 "baseline_remaining": (
                     unocc_rem if (wants_unocc and unocc_rem) else occ_rem
                 ),
+                "reference_today": [*occ_week[current_day], *unocc_week[current_day]],
             }
 
         if not space_contexts:
@@ -1365,6 +1382,7 @@ class HvacButlerCoordinator:
         prompt = build_intraday_prompt(ctx, self.guardrails)
 
         ai_json: dict[str, Any] | None = None
+        ai_failed = False
         try:
             ai_json = await self._async_call_ai_task(
                 "hvac_butler_intraday_revision", prompt
@@ -1372,48 +1390,14 @@ class HvacButlerCoordinator:
             ai_spaces = ai_json.get("spaces", {}) if isinstance(ai_json, dict) else {}
             self.last_error = None
         except Exception as err:
+            ai_failed = True
             self.last_error = str(err).splitlines()[0][:240]
-            self.status = "error"
-            await self.journal.async_append(
-                {
-                    "timestamp": now_local.isoformat(),
-                    "kind": "intraday",
-                    "status": "error",
-                    "trigger": journal_trigger,
-                    "target_days": [current_day],
-                    "weather_snapshot": weather_summary,
-                    "headline": f"Intraday evaluation failed ({deterministic_trigger_label})",
-                    "error": self.last_error,
-                    "spaces": {
-                        s_id: {
-                            "name": m["name"],
-                            "changed": False,
-                            "summary": f"Evaluation error: {self.last_error}",
-                            "fallback": False,
-                            "locked": bool(m["is_locked"]),
-                            "comfort_boost": None,
-                            "guardrail_notes": [],
-                            "before_blocks": {
-                                current_day: [
-                                    b.to_ha_dict()
-                                    for b in m["current_butler_remaining"]
-                                ]
-                            },
-                            "after_blocks": {
-                                current_day: [
-                                    b.to_ha_dict()
-                                    for b in m["current_butler_remaining"]
-                                ]
-                            },
-                        }
-                        for s_id, m in space_meta.items()
-                    },
-                    "raw_response": None,
-                }
+            _LOGGER.warning(
+                "Intraday revision AI task failed, using deterministic heuristic fallback: %s",
+                err,
             )
-            self._notify_entities()
-            _LOGGER.error("Intraday revision AI task failed: %s", err)
-            return
+            ai_json = build_heuristic_intraday_revision(ctx, self.guardrails)
+            ai_spaces = ai_json.get("spaces", {})
 
         explanations: dict[str, str] = {}
         journal_spaces: dict[str, dict[str, Any]] = {}
@@ -1463,6 +1447,7 @@ class HvacButlerCoordinator:
                     guardrails,
                     outdoor_temp_f=outdoor_temp,
                     supported_hvac_modes=meta["modes"],
+                    reference_blocks=meta["reference_today"],
                 )
                 after_remaining = res.blocks
                 used_fallback = bool(res.used_fallback)
@@ -1513,7 +1498,7 @@ class HvacButlerCoordinator:
                 "name": meta["name"],
                 "changed": bool(blocks_changed or boost_applied),
                 "summary": explanations[space_id],
-                "fallback": used_fallback,
+                "fallback": bool(used_fallback),
                 "locked": bool(meta["is_locked"]),
                 "comfort_boost": (
                     {**boost, "applied": boost_applied} if boost else None
@@ -1528,28 +1513,36 @@ class HvacButlerCoordinator:
             }
 
         trigger_label = str(trigger_event.get("type", "event")).replace("_", " ")
-        self.intraday_headline = (
-            f"{spaces_changed} of {len(space_meta)} spaces revised ({trigger_label})"
-            if spaces_changed
-            else f"No schedule changes ({trigger_label})"
-        )
+        if ai_failed:
+            self.intraday_headline = (
+                f"Heuristic fallback: {spaces_changed} of {len(space_meta)} spaces revised ({trigger_label})"
+                if spaces_changed
+                else f"Heuristic fallback: no schedule changes ({trigger_label})"
+            )
+        else:
+            self.intraday_headline = (
+                f"{spaces_changed} of {len(space_meta)} spaces revised ({trigger_label})"
+                if spaces_changed
+                else f"No schedule changes ({trigger_label})"
+            )
         self.space_intraday_explanations = explanations
         self.intraday_explanation = " | ".join(
             f"{space_meta[s]['name']}: {txt}" for s, txt in explanations.items()
         )
         self.last_trigger = trigger_event
         self.last_intraday_run = now_local.isoformat()
-        self.status = "fallback" if any_guardrail_fallback else "ok"
+        self.status = "fallback" if (ai_failed or any_guardrail_fallback) else "ok"
         await self.journal.async_append(
             {
                 "timestamp": now_local.isoformat(),
                 "kind": "intraday",
                 "status": self.status,
+                "heuristic": bool(ai_failed),
                 "trigger": journal_trigger,
                 "target_days": [current_day],
                 "weather_snapshot": weather_summary,
                 "headline": self.intraday_headline,
-                "error": None,
+                "error": self.last_error if ai_failed else None,
                 "spaces": journal_spaces,
                 "raw_response": ai_json,
             }

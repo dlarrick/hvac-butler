@@ -216,12 +216,13 @@ class HvacButlerJournal:
                     if rec.get("comfort_boost"):
                         item["comfort_boost"] = rec["comfort_boost"]
                     spaces_compact[s_id] = item
-            compact.append(
-                {
-                    "timestamp": entry.get("timestamp"),
-                    "kind": entry.get("kind"),
-                    "trigger": entry.get("trigger"),
-                    "spaces": spaces_compact,
-                }
-            )
+            record: dict[str, Any] = {
+                "timestamp": entry.get("timestamp"),
+                "kind": entry.get("kind"),
+                "trigger": entry.get("trigger"),
+                "spaces": spaces_compact,
+            }
+            if entry.get("kind") == "plan" and entry.get("weather_snapshot"):
+                record["weather_snapshot"] = entry["weather_snapshot"]
+            compact.append(record)
         return compact

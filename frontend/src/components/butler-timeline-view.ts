@@ -50,6 +50,17 @@ export class ButlerTimelineView extends LitElement {
       border-color: var(--primary-color, #03a9f4);
     }
 
+    .pinned-plan.heuristic {
+      border-color: rgba(255, 152, 0, 0.35);
+      border-left-color: #ffb74d;
+      background: rgba(255, 152, 0, 0.08);
+    }
+
+    .pinned-plan.heuristic:hover {
+      background: rgba(255, 152, 0, 0.15);
+      border-color: #ffb74d;
+    }
+
     .pinned-plan-left {
       display: flex;
       align-items: center;
@@ -275,6 +286,7 @@ export class ButlerTimelineView extends LitElement {
     const allRecs = Object.values(entry.spaces || {});
     const rec = isAll ? undefined : entry.spaces?.[this.selectedSpaceId];
 
+    const isHeuristic = Boolean(entry.heuristic);
     const anyFallback = isAll
       ? allRecs.some((r) => r.fallback)
       : Boolean(rec?.fallback);
@@ -283,7 +295,8 @@ export class ButlerTimelineView extends LitElement {
     const anyBoost = isAll
       ? allRecs.some((r) => r.comfort_boost?.applied)
       : Boolean(rec?.comfort_boost?.applied);
-    const isUnchangedIntraday = !isPlan && !anyChanged && !anyFallback && !anyBoost;
+    const isUnchangedIntraday =
+      !isPlan && !anyChanged && !anyFallback && !isHeuristic && !anyBoost;
 
     let summaryText: string;
     if (!isAll) {
@@ -321,6 +334,14 @@ export class ButlerTimelineView extends LitElement {
             </span>
             ${entry.status === 'error'
               ? html`<span class="badge badge-error">Error</span>`
+              : nothing}
+            ${isHeuristic
+              ? html`<span
+                  class="badge badge-fallback"
+                  title="AI unavailable — ran in basic non-AI mode"
+                >
+                  Basic
+                </span>`
               : nothing}
             ${anyFallback
               ? html`<span class="badge badge-fallback">Fallback</span>`
@@ -390,7 +411,7 @@ export class ButlerTimelineView extends LitElement {
       ${showPinnedPlan && latestPlan
         ? html`
             <div
-              class="pinned-plan"
+              class="pinned-plan ${latestPlan.heuristic ? 'heuristic' : ''}"
               role="button"
               tabindex="0"
               title="Latest daily plan — click for full schedule details"
@@ -404,6 +425,14 @@ export class ButlerTimelineView extends LitElement {
             >
               <div class="pinned-plan-left">
                 <span class="badge badge-trigger-plan">Plan</span>
+                ${latestPlan.heuristic
+                  ? html`<span
+                      class="badge badge-fallback"
+                      title="AI unavailable — plan generated in basic non-AI mode"
+                    >
+                      Basic
+                    </span>`
+                  : nothing}
                 <span class="pinned-plan-text">${pinnedPlanText}</span>
               </div>
               <span class="time">${formatShortTimestamp(latestPlan.timestamp)}</span>

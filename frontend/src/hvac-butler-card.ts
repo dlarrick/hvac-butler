@@ -536,7 +536,10 @@ export class HvacButlerCard extends LitElement {
       case 'ok':
         return { label: 'OK', cls: 'status-ok' };
       case 'fallback':
-        return { label: 'Fallback', cls: 'status-fallback' };
+        return {
+          label: this._entries[0]?.heuristic ? 'Basic' : 'Fallback',
+          cls: 'status-fallback'
+        };
       case 'error':
         return { label: 'Error', cls: 'status-error' };
       default:

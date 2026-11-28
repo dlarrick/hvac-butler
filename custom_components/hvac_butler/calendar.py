@@ -83,8 +83,12 @@ class HvacButlerCalendarEntity(CalendarEntity):
         recurrence_id: str | None = None,
         recurrence_range: str | None = None,
     ) -> None:
-        """Allow deleting an event from HA's native Calendar UI as a recovery escape hatch."""
-        deleted = await self._coordinator.calendar_store.async_delete_event(uid)
+        """Allow deleting an event (or single recurrence) from HA's native Calendar UI."""
+        deleted = await self._coordinator.calendar_store.async_delete_event(
+            uid,
+            recurrence_id=recurrence_id,
+            recurrence_range=recurrence_range,
+        )
         if deleted:
             self._coordinator.reschedule_calendar_boundary()
             self._coordinator.notify_state_changed()

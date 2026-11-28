@@ -336,3 +336,100 @@ async def test_calendar_entity_brief_commit_and_day_notes_integration(
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+@pytest.mark.asyncio
+async def test_calendar_store_recurring_events_rrule_and_exdates(
+    hass: HomeAssistant,
+) -> None:
+    """Verify RFC 5545 RRULE recurring events expand, survive pruning, fire boundaries, and support single-occurrence delete."""
+    tz = dt_util.DEFAULT_TIME_ZONE
+    # Monday 2026-11-30 07:00
+    now = datetime(2026, 11, 30, 7, 0, 0, tzinfo=tz)
+
+    store = ButlerCalendarStore(hass)
+    await store.async_load()
+
+    counts, affected = await store.async_apply_actions(
+        [
+            {
+                "action": "add",
+                "summary": "Doug Office Commute",
+                "description": "Typically in office Tue-Thu; Home Office unoccupied unless presence triggers.",
+                "start": "2026-11-10T08:00:00",  # Started 3 weeks ago — must NOT be pruned
+                "end": "2026-11-10T17:30:00",
+                "all_day": False,
+                "rrule": "RRULE:FREQ=WEEKLY;BYDAY=TU,WE,TH",
+                "spaces": ["home_office"],
+            }
+        ],
+        now=now,
+        valid_space_ids={"home_office"},
+    )
+    assert counts == {"added": 1, "updated": 0, "deleted": 0}
+    assert len(store.events) == 1
+    ev = store.events[0]
+    assert ev.rrule == "FREQ=WEEKLY;BYDAY=TU,WE,TH"
+
+    # Monday has no occurrence; Tuesday Dec 1 has 08:00-17:30
+    mon_notes = store.format_day_notes(
+        datetime(2026, 11, 30, 0, 0, tzinfo=tz),
+        datetime(2026, 12, 1, 0, 0, tzinfo=tz),
+    )
+    assert mon_notes == []
+
+    tue_notes = store.format_day_notes(
+        datetime(2026, 12, 1, 0, 0, tzinfo=tz),
+        datetime(2026, 12, 2, 0, 0, tzinfo=tz),
+    )
+    assert len(tue_notes) == 1
+    assert "2026-12-01 08:00–17:30" in tue_notes[0]
+    assert "Doug Office Commute" in tue_notes[0]
+
+    # Full week query returns 3 concrete occurrences (Tue, Wed, Thu)
+    week_events = store.get_events_in_range(
+        datetime(2026, 11, 30, 0, 0, tzinfo=tz),
+        datetime(2026, 12, 7, 0, 0, tzinfo=tz),
+    )
+    assert len(week_events) == 3
+    assert [e.start[:10] for e in week_events] == [
+        "2026-12-01",
+        "2026-12-02",
+        "2026-12-03",
+    ]
+    # HA CalendarEvent carries rrule and recurrence_id
+    ha_ev = week_events[0].to_ha_calendar_event()
+    assert ha_ev.rrule == "FREQ=WEEKLY;BYDAY=TU,WE,TH"
+    assert ha_ev.recurrence_id == week_events[0].start
+
+    # get_upcoming_events returns 1 concise master series for briefing prompt
+    upcoming = store.get_upcoming_events(now, days=30)
+    assert len(upcoming) == 1
+    assert upcoming[0].to_prompt_dict()["rrule"] == "FREQ=WEEKLY;BYDAY=TU,WE,TH"
+
+    # Next timed boundary from Monday 07:00 is Tuesday Dec 1 08:00 start
+    nxt = store.get_next_boundary(now)
+    assert nxt is not None
+    b_dt, phase, b_ev = nxt
+    assert phase == "start"
+    assert b_dt.date().isoformat() == "2026-12-01"
+    assert b_dt.hour == 8
+    assert b_ev.summary == "Doug Office Commute"
+
+    # Deleting a single occurrence (Tuesday Dec 1) records an exdate and leaves Wed/Thu intact
+    assert (
+        await store.async_delete_event(ev.uid, recurrence_id=week_events[0].start)
+        is True
+    )
+    week_after = store.get_events_in_range(
+        datetime(2026, 11, 30, 0, 0, tzinfo=tz),
+        datetime(2026, 12, 7, 0, 0, tzinfo=tz),
+    )
+    assert [e.start[:10] for e in week_after] == ["2026-12-02", "2026-12-03"]
+
+    # Persistence round-trip preserves rrule and exdates
+    store2 = ButlerCalendarStore(hass)
+    await store2.async_load()
+    assert len(store2.events) == 1
+    assert store2.events[0].rrule == "FREQ=WEEKLY;BYDAY=TU,WE,TH"
+    assert len(store2.events[0].exdates) == 1

@@ -604,7 +604,9 @@ const ALL_SPACES_ID = "__all__";
 function isCollapsibleUnchanged(entry, spaceId) {
   var _a2, _b;
   if (entry.kind === "plan") return false;
-  if (entry.status === "error" || entry.status === "fallback") return false;
+  if (entry.status === "error" || entry.status === "fallback" || entry.heuristic) {
+    return false;
+  }
   if (spaceId === ALL_SPACES_ID) {
     const records = Object.values(entry.spaces || {});
     if (records.length === 0) return true;
@@ -841,6 +843,7 @@ let ButlerTimelineView = class extends i {
     const isPlan = entry.kind === "plan";
     const allRecs = Object.values(entry.spaces || {});
     const rec = isAll ? void 0 : (_a2 = entry.spaces) == null ? void 0 : _a2[this.selectedSpaceId];
+    const isHeuristic = Boolean(entry.heuristic);
     const anyFallback = isAll ? allRecs.some((r2) => r2.fallback) : Boolean(rec == null ? void 0 : rec.fallback);
     const changedRecs = allRecs.filter((r2) => r2.changed);
     const anyChanged = isAll ? changedRecs.length > 0 : Boolean(rec == null ? void 0 : rec.changed);
@@ -848,7 +851,7 @@ let ButlerTimelineView = class extends i {
       var _a3;
       return (_a3 = r2.comfort_boost) == null ? void 0 : _a3.applied;
     }) : Boolean((_b = rec == null ? void 0 : rec.comfort_boost) == null ? void 0 : _b.applied);
-    const isUnchangedIntraday = !isPlan && !anyChanged && !anyFallback && !anyBoost;
+    const isUnchangedIntraday = !isPlan && !anyChanged && !anyFallback && !isHeuristic && !anyBoost;
     let summaryText;
     if (!isAll) {
       summaryText = (rec == null ? void 0 : rec.summary) || entry.headline || "No details recorded.";
@@ -881,6 +884,12 @@ let ButlerTimelineView = class extends i {
               ${formatTriggerLabel(entry.trigger)}
             </span>
             ${entry.status === "error" ? b`<span class="badge badge-error">Error</span>` : A}
+            ${isHeuristic ? b`<span
+                  class="badge badge-fallback"
+                  title="AI unavailable — ran in basic non-AI mode"
+                >
+                  Basic
+                </span>` : A}
             ${anyFallback ? b`<span class="badge badge-fallback">Fallback</span>` : anyChanged ? b`<span class="badge badge-adjusted">
                     ${isAll && changedRecs.length > 1 ? `${changedRecs.length} Adjusted` : "Adjusted"}
                   </span>` : A}
@@ -922,7 +931,7 @@ let ButlerTimelineView = class extends i {
     return b`
       ${showPinnedPlan && latestPlan ? b`
             <div
-              class="pinned-plan"
+              class="pinned-plan ${latestPlan.heuristic ? "heuristic" : ""}"
               role="button"
               tabindex="0"
               title="Latest daily plan — click for full schedule details"
@@ -936,6 +945,12 @@ let ButlerTimelineView = class extends i {
             >
               <div class="pinned-plan-left">
                 <span class="badge badge-trigger-plan">Plan</span>
+                ${latestPlan.heuristic ? b`<span
+                      class="badge badge-fallback"
+                      title="AI unavailable — plan generated in basic non-AI mode"
+                    >
+                      Basic
+                    </span>` : A}
                 <span class="pinned-plan-text">${pinnedPlanText}</span>
               </div>
               <span class="time">${formatShortTimestamp(latestPlan.timestamp)}</span>
@@ -1010,6 +1025,17 @@ ButlerTimelineView.styles = i$3`
     .pinned-plan:hover {
       background: rgba(3, 169, 244, 0.14);
       border-color: var(--primary-color, #03a9f4);
+    }
+
+    .pinned-plan.heuristic {
+      border-color: rgba(255, 152, 0, 0.35);
+      border-left-color: #ffb74d;
+      background: rgba(255, 152, 0, 0.08);
+    }
+
+    .pinned-plan.heuristic:hover {
+      background: rgba(255, 152, 0, 0.15);
+      border-color: #ffb74d;
     }
 
     .pinned-plan-left {
@@ -1338,6 +1364,12 @@ let ButlerDetailModal = class extends i {
               ${formatTriggerLabel(entry.trigger)}
             </span>
             ${entry.status === "error" ? b`<span class="badge badge-error">Error</span>` : A}
+            ${entry.heuristic ? b`<span
+                  class="badge badge-fallback"
+                  title="AI unavailable — ran in basic non-AI mode"
+                >
+                  Basic
+                </span>` : A}
             <span class="timestamp">${formatFullTimestamp(entry.timestamp)}</span>
           </div>
           <button
@@ -1356,7 +1388,9 @@ let ButlerDetailModal = class extends i {
             ${weatherLine ? b`<div>${weatherLine}</div>` : A}
           </div>
 
-          ${entry.error ? b`<div class="error-banner">${entry.error}</div>` : A}
+          ${entry.heuristic ? b`<div class="heuristic-banner">
+                AI unavailable — ran in basic mode${entry.error ? `: ${entry.error}` : "."}
+              </div>` : entry.error ? b`<div class="error-banner">${entry.error}</div>` : A}
 
           ${selectedRec ? b`
                 <div>
@@ -1517,6 +1551,15 @@ ButlerDetailModal.styles = i$3`
       background: rgba(244, 67, 54, 0.14);
       border: 1px solid rgba(244, 67, 54, 0.35);
       color: var(--error-color, #ef5350);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+    }
+
+    .heuristic-banner {
+      background: rgba(255, 152, 0, 0.14);
+      border: 1px solid rgba(255, 152, 0, 0.35);
+      color: #ffb74d;
       padding: 8px 12px;
       border-radius: 8px;
       font-size: 0.85rem;
@@ -2493,6 +2536,7 @@ let HvacButlerCard = class extends i {
     }
   }
   _statusPillInfo() {
+    var _a2;
     switch (this._status) {
       case "planning":
         return { label: "Planning…", cls: "status-busy" };
@@ -2501,7 +2545,10 @@ let HvacButlerCard = class extends i {
       case "ok":
         return { label: "OK", cls: "status-ok" };
       case "fallback":
-        return { label: "Fallback", cls: "status-fallback" };
+        return {
+          label: ((_a2 = this._entries[0]) == null ? void 0 : _a2.heuristic) ? "Basic" : "Fallback",
+          cls: "status-fallback"
+        };
       case "error":
         return { label: "Error", cls: "status-error" };
       default:
